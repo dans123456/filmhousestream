@@ -61,6 +61,7 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
     # 2. Detect Season & Episode
     season = None
     episode = None
+    episode_title = None
     is_series = False
 
     for pat in SERIES_PATTERNS:
@@ -75,6 +76,14 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             if "episode" in groups and groups["episode"]:
                 episode = int(groups["episode"])
             
+            # Extract subtitle / episode name after the SxxExx tag
+            after_text = name[m.end():].replace(".", " ").replace("_", " ")
+            for tag_pattern in CLEANUP_TAGS + [r"\bfilmhouse\b"]:
+                after_text = re.sub(tag_pattern, "", after_text, flags=re.IGNORECASE)
+            after_text = re.sub(r"\s+", " ", after_text).strip(" -_")
+            if after_text:
+                episode_title = " ".join([w.capitalize() for w in after_text.split()])
+
             # Cut title before the season/episode marker
             working_name = name[:m.start()].replace(".", " ").replace("_", " ")
             break
@@ -89,7 +98,7 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
 
     # 4. Clean up Title
     clean_title = working_name
-    for tag_pattern in CLEANUP_TAGS:
+    for tag_pattern in CLEANUP_TAGS + [r"\bfilmhouse\b"]:
         clean_title = re.sub(tag_pattern, "", clean_title, flags=re.IGNORECASE)
 
     clean_title = re.sub(r"\s+", " ", clean_title).strip(" -_")
@@ -103,7 +112,8 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
     if is_series:
         s_str = f"S{season:02d}" if season else "S01"
         e_str = f"E{episode:02d}" if episode else "E01"
-        clean_name = f"{clean_title} {s_str}{e_str}"
+        ep_sub = f" — {episode_title}" if episode_title else ""
+        clean_name = f"{clean_title} {s_str}{e_str}{ep_sub}"
         if quality:
             clean_name += f" ({quality})"
     else:
@@ -116,6 +126,7 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
         "title": clean_title,
         "season": season,
         "episode": episode,
+        "episode_title": episode_title,
         "quality": quality,
         "year": year,
         "clean_name": clean_name,

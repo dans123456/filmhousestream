@@ -30,7 +30,8 @@ def build_blogspot_url(stream_url: str, title: str) -> str:
 
 async def flush_batch(client: Client, user_id: int):
     """
-    Called after debounce delay to send the finalized batch summary of all forwarded episodes.
+    Called after debounce delay to sort episodes numerically, forward them in order
+    into the Bin Channel, and output a clean, verifiable list with episode titles.
     """
     buffer_data = _batch_buffers.pop(user_id, None)
     if not buffer_data:
@@ -42,52 +43,58 @@ async def flush_batch(client: Client, user_id: int):
     if not items:
         return
 
-    # If only 1 file was forwarded, format as a single detailed card
+    # Case 1: Single file forwarded (Movie or 1 Episode)
     if len(items) == 1:
         item = items[0]
+        msg: Message = item["msg"]
         parsed = item["parsed"]
-        clean_name = parsed["clean_name"]
-        stream_url = item["stream_url"]
-        token = item["token"]
         file_name = item["file_name"]
         file_size_str = item["file_size_str"]
-        blogger_url = build_blogspot_url(stream_url, parsed["title"])
 
-        if parsed["is_series"]:
-            title = parsed["title"]
-            season = parsed["season"] or 1
-            episode = parsed["episode"] or 1
-            quality_badge = f" • {parsed['quality']}" if parsed['quality'] else ""
+        try:
+            forwarded = await msg.forward(config.BIN_CHANNEL_ID)
+            token = generate_stream_token(forwarded.id)
+            stream_url = f"{config.SERVER_URL}/dl/{token}"
+            blogger_url = build_blogspot_url(stream_url, parsed["title"])
 
-            text = (
-                f"📺 **{title} — Season {season}**\n\n"
-                f"• **Episode {episode}**{quality_badge}\n"
-                f"📁 `{file_name}` ({file_size_str})\n\n"
-                f"🔗 **Stream URL (FilmHouse):**\n`{stream_url}`\n\n"
-                f"🔑 **Token:**\n`{token}`\n\n"
-                f"🍿 **Blogspot Player (Monetag Ads):**\n{blogger_url}"
-            )
-        else:
-            title = parsed["title"]
-            year_str = f" ({parsed['year']})" if parsed['year'] else ""
-            qual_str = f" [{parsed['quality']}]" if parsed['quality'] else ""
+            if parsed["is_series"]:
+                title = parsed["title"]
+                season = parsed["season"] or 1
+                episode = parsed["episode"] or 1
+                ep_sub = f" — {parsed['episode_title']}" if parsed['episode_title'] else ""
+                quality_badge = f" • {parsed['quality']}" if parsed['quality'] else ""
 
-            text = (
-                f"🎬 **{title}{year_str}{qual_str}**\n\n"
-                f"📁 `{file_name}` ({file_size_str})\n\n"
-                f"🔗 **Stream URL (FilmHouse):**\n`{stream_url}`\n\n"
-                f"🔑 **Token:**\n`{token}`\n\n"
-                f"🍿 **Blogspot Player (Monetag Ads):**\n{blogger_url}"
-            )
+                text = (
+                    f"📺 **{title} — Season {season}**\n\n"
+                    f"• **Episode {episode}{ep_sub}**{quality_badge}\n"
+                    f"📁 `{file_name}` ({file_size_str})\n\n"
+                    f"🔗 **Stream URL (FilmHouse):**\n`{stream_url}`\n\n"
+                    f"🔑 **Token:**\n`{token}`"
+                )
+            else:
+                title = parsed["title"]
+                year_str = f" ({parsed['year']})" if parsed['year'] else ""
+                qual_str = f" [{parsed['quality']}]" if parsed['quality'] else ""
 
-        buttons = [
-            [InlineKeyboardButton("🍿 Play on Blogspot", url=blogger_url)],
-            [InlineKeyboardButton("⬇️ Direct Stream Link", url=stream_url)],
-        ]
-        await status_msg.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
+                text = (
+                    f"🎬 **{title}{year_str}{qual_str}**\n\n"
+                    f"📁 `{file_name}` ({file_size_str})\n\n"
+                    f"🔗 **Stream URL (FilmHouse):**\n`{stream_url}`\n\n"
+                    f"🔑 **Token:**\n`{token}`"
+                )
+
+            buttons = [
+                [InlineKeyboardButton("🍿 Test on Blogspot", url=blogger_url)],
+                [InlineKeyboardButton("⬇️ Direct Stream Link", url=stream_url)],
+            ]
+            await status_msg.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
+        except Exception as e:
+            logger.error(f"Error indexing single file: {e}")
+            await status_msg.edit_text(f"❌ Error indexing file: `{str(e)}`")
         return
 
-    # Multiple files forwarded: Group by Show Title & Season
+    # Case 2: Multiple files forwarded (Series Batch)
+    # Group by (Show Title, Season)
     groups: dict[tuple, list] = {}
     for item in items:
         p = item["parsed"]
@@ -97,36 +104,63 @@ async def flush_batch(client: Client, user_id: int):
         groups[key].append(item)
 
     for (show_title, season), ep_items in groups.items():
-        # Sort episodes numerically by episode number
+        # 1. SORT STRICTLY BY EPISODE NUMBER (Ep 1 -> Ep 22)
         ep_items.sort(key=lambda x: (x["parsed"]["episode"] or 0, x["file_name"]))
+        total_eps = len(ep_items)
 
-        first_stream = ep_items[0]["stream_url"]
-        first_blogger_url = build_blogspot_url(first_stream, f"{show_title} S{season:02d}E01")
+        # 2. FORWARD INTO BIN CHANNEL IN STRICT NUMERICAL ORDER
+        try:
+            await status_msg.edit_text(f"⏳ *Forwarding {total_eps} episodes in strict numerical order to storage channel...*")
+        except Exception:
+            pass
 
+        processed_links = []
+        for idx, ep_item in enumerate(ep_items, start=1):
+            raw_msg: Message = ep_item["msg"]
+            try:
+                # Forward to bin channel in sequence
+                forwarded = await raw_msg.forward(config.BIN_CHANNEL_ID)
+                token = generate_stream_token(forwarded.id)
+                stream_url = f"{config.SERVER_URL}/dl/{token}"
+
+                ep_num = ep_item["parsed"]["episode"] or idx
+                ep_title = ep_item["parsed"]["episode_title"]
+                title_label = f" — {ep_title}" if ep_title else ""
+
+                processed_links.append({
+                    "ep_num": ep_num,
+                    "title_label": title_label,
+                    "stream_url": stream_url,
+                    "file_name": ep_item["file_name"],
+                })
+                # Small pause to guarantee Telegram timestamp order in channel
+                await asyncio.sleep(0.3)
+            except Exception as e:
+                logger.error(f"Error forwarding episode {idx}: {e}")
+
+        # 3. BUILD CLEAN, VERIFIABLE OUTPUT WITH EPISODE TITLES
         header = (
             f"📺 **{show_title} — Season {season}**\n"
-            f"⚡ **{len(ep_items)} Episodes Indexed Successfully!**\n\n"
-            f"📋 **Copy & Paste into FilmHouse Admin:**\n"
+            f"⚡ **{len(processed_links)} Episodes Indexed in Strict Numerical Order!**\n\n"
+            f"📋 **Copy & Paste into FilmHouse Admin:**\n\n"
         )
 
         lines = []
-        for ep in ep_items:
-            ep_num = ep["parsed"]["episode"]
-            ep_label = f"Ep {ep_num}" if ep_num else "Ep"
-            lines.append(f"• **{ep_label}:** `{ep['stream_url']}`")
+        for ep in processed_links:
+            lines.append(f"• **Ep {ep['ep_num']}{ep['title_label']}**\n  `{ep['stream_url']}`\n")
 
-        # Telegram message length limit chunking (4000 characters)
+        # Chunk messages if exceeding Telegram 4000 char limit
         current_chunk = header
         for line in lines:
             if len(current_chunk) + len(line) + 100 > 3800:
                 await client.send_message(user_id, current_chunk, disable_web_page_preview=True)
                 current_chunk = f"📺 **{show_title} — Season {season} (Continued):**\n\n"
-            current_chunk += line + "\n"
+            current_chunk += line
 
-        current_chunk += f"\n🍿 **Blogspot Player (Ep 1):**\n{first_blogger_url}"
-
+        first_stream = processed_links[0]["stream_url"] if processed_links else ""
+        first_blogger = build_blogspot_url(first_stream, f"{show_title} S{season:02d}E01") if first_stream else config.BLOGGER_URL
         buttons = [
-            [InlineKeyboardButton("🍿 Test on Blogspot", url=first_blogger_url)],
+            [InlineKeyboardButton("🍿 Test Ep 1 on Blogspot", url=first_blogger)],
         ]
 
         try:
@@ -146,10 +180,10 @@ def register_handlers(app: Client):
 
         welcome_text = (
             "🎬 **Welcome to FilmHouse Stream Bot!**\n\n"
-            "Forward any **Movie** or **TV Series batch** here, and I will instantly generate:\n"
-            "• ⚡ High-Speed HTTP 206 Direct Stream URLs\n"
-            "• 🍿 Direct Blogspot Player Links (with your Monetag Ads)\n"
-            "• 📺 Smart Season & Episode recognition (up to 100+ episodes at once)\n\n"
+            "Forward any **Movie** or **TV Series batch** here, and I will:\n"
+            "• ⚡ Sort episodes in strict numerical order (Ep 1 $\\rightarrow$ Ep 100)\n"
+            "• 📁 Back up into your Bin Channel in clean sequence\n"
+            "• 📺 Extract each Episode Title so you can verify before adding to FilmHouse\n\n"
             "Forward your video files to get started!"
         )
         keyboard = InlineKeyboardMarkup([
@@ -161,6 +195,30 @@ def register_handlers(app: Client):
     @app.on_callback_query(filters.regex("status_check"))
     async def status_callback(client: Client, query):
         await query.answer("⚡ Streaming server is active and online!", show_alert=True)
+
+    @app.on_message(filters.command("clear_bin") & filters.private)
+    async def clear_bin_handler(client: Client, message: Message):
+        """Allows an admin to clean out old test messages from the bin channel."""
+        if not is_authorized(message.from_user.id):
+            return
+        
+        status = await message.reply_text("🧹 *Cleaning out old test files from storage channel...*")
+        count = 0
+        try:
+            # Delete messages from bin channel in batches
+            msg_ids_to_delete = []
+            async for m in client.get_chat_history(config.BIN_CHANNEL_ID, limit=100):
+                msg_ids_to_delete.append(m.id)
+                if len(msg_ids_to_delete) >= 50:
+                    await client.delete_messages(config.BIN_CHANNEL_ID, msg_ids_to_delete)
+                    count += len(msg_ids_to_delete)
+                    msg_ids_to_delete = []
+            if msg_ids_to_delete:
+                await client.delete_messages(config.BIN_CHANNEL_ID, msg_ids_to_delete)
+                count += len(msg_ids_to_delete)
+            await status.edit_text(f"✅ *Successfully deleted {count} old messages from your Bin Channel!* Your channel is fresh and clean.")
+        except Exception as e:
+            await status.edit_text(f"❌ Error clearing bin channel: `{e}`")
 
     @app.on_message((filters.video | filters.document) & filters.private)
     async def media_handler(client: Client, message: Message):
@@ -175,7 +233,7 @@ def register_handlers(app: Client):
 
         # Initialize or retrieve user's batch buffer
         if user_id not in _batch_buffers:
-            status_msg = await message.reply_text("⏳ *Indexing file to storage channel...*", quote=True)
+            status_msg = await message.reply_text("⏳ *Receiving and preparing episodes...*", quote=True)
             _batch_buffers[user_id] = {
                 "items": [],
                 "task": None,
@@ -185,41 +243,33 @@ def register_handlers(app: Client):
             status_msg = _batch_buffers[user_id]["status_msg"]
 
         try:
-            # 1. Forward media to private bin channel
-            forwarded = await message.forward(config.BIN_CHANNEL_ID)
-            message_id = forwarded.id
-
-            # 2. Extract metadata
-            file_name = getattr(media, "file_name", None) or f"video_{message_id}.mp4"
+            # Extract metadata without forwarding yet
+            file_name = getattr(media, "file_name", None) or f"video_{message.id}.mp4"
             file_size = getattr(media, "file_size", 0)
             file_size_str = format_bytes(file_size)
 
-            # 3. Parse filename and build token & stream URL
+            # Parse filename
             parsed = parse_filename(file_name)
-            token = generate_stream_token(message_id)
-            stream_url = f"{config.SERVER_URL}/dl/{token}"
 
             item_data = {
-                "message_id": message_id,
+                "msg": message,
                 "file_name": file_name,
                 "file_size": file_size,
                 "file_size_str": file_size_str,
                 "parsed": parsed,
-                "token": token,
-                "stream_url": stream_url,
             }
 
             _batch_buffers[user_id]["items"].append(item_data)
             count = len(_batch_buffers[user_id]["items"])
 
-            # Update status message if multiple files arrive
+            # Update live counter
             if count > 1:
                 try:
-                    await status_msg.edit_text(f"⏳ *Indexed {count} episodes so far... Processing batch...*")
+                    await status_msg.edit_text(f"⏳ *Received {count} episodes... Waiting for all files in batch...*")
                 except Exception:
                     pass
 
-            # 4. Debounce Timer: Wait 3.5 seconds after last forwarded file
+            # Debounce timer: wait 3.5 seconds after last forwarded message arrives
             if _batch_buffers[user_id]["task"]:
                 _batch_buffers[user_id]["task"].cancel()
 
