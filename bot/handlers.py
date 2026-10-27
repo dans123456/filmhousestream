@@ -71,7 +71,7 @@ def register_handlers(app: Client):
             token = generate_stream_token(message_id)
 
             watch_url = f"{config.SERVER_URL}/watch/{token}"
-            stream_url = f"{config.SERVER_URL}/stream/{token}"
+            stream_url = f"{config.SERVER_URL}/dl/{token}"
 
             # 4. Format Output
             if parsed["is_series"]:
@@ -84,8 +84,9 @@ def register_handlers(app: Client):
                     f"📺 **{title} — Season {season}**\n\n"
                     f"• **Episode {episode}**{quality_badge}\n"
                     f"📁 `{file_name}` ({file_size_str})\n\n"
-                    f"🔗 **Stream URL:**\n`{stream_url}`\n\n"
-                    f"🌐 **Web Player:**\n{watch_url}"
+                    f"🔗 **Stream URL (FilmHouse):**\n`{stream_url}`\n\n"
+                    f"🔑 **Token:**\n`{token}`\n\n"
+                    f"🌐 **Player:** {watch_url}"
                 )
             else:
                 title = parsed["title"]
@@ -95,8 +96,9 @@ def register_handlers(app: Client):
                 reply_text = (
                     f"🎬 **{title}{year_str}{qual_str}**\n\n"
                     f"📁 `{file_name}` ({file_size_str})\n\n"
-                    f"🔗 **Direct Stream URL:**\n`{stream_url}`\n\n"
-                    f"🌐 **Web Player:**\n{watch_url}"
+                    f"🔗 **Stream URL (FilmHouse):**\n`{stream_url}`\n\n"
+                    f"🔑 **Token:**\n`{token}`\n\n"
+                    f"🌐 **Player:** {watch_url}"
                 )
 
             buttons = [

@@ -249,14 +249,35 @@ async def handle_watch(request: web.Request) -> web.Response:
         mime_type=mime_type,
     )
 
-    return web.Response(text=html, content_type="text/html")
+    return web.Response(
+        text=html,
+        content_type="text/html",
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Content-Security-Policy": "frame-ancestors *",
+        }
+    )
 
 
 async def handle_stream(request: web.Request) -> web.StreamResponse:
     """
     Core HTTP 206 Partial Content video streaming handler.
-    Proxies byte ranges directly from Telegram MTProto to the browser.
+    Optimized for iOS Safari, Telegram WebApp, and Chrome seeking.
+    Supports GET, HEAD, and OPTIONS requests.
     """
+    # 1. Handle CORS Preflight (OPTIONS)
+    if request.method == "OPTIONS":
+        return web.Response(
+            status=204,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+                "Access-Control-Allow-Headers": "Range, Content-Range, Origin, Accept, Content-Type",
+                "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
+                "Access-Control-Max-Age": "86400",
+            }
+        )
+
     token = request.match_info.get("token", "")
     message_id = verify_stream_token(token)
     if not message_id:
@@ -270,13 +291,46 @@ async def handle_stream(request: web.Request) -> web.StreamResponse:
         return web.Response(text="Media not found.", status=404)
 
     file_size = info["file_size"]
-    mime_type = info["mime_type"]
+    raw_mime = info["mime_type"]
     file_name = info["file_name"]
     message = info["message"]
 
-    # Parse Range Header: bytes=start-end
+    # 2. MIME Type Optimization for iOS Safari & Telegram WebApp
+    lower_name = file_name.lower()
+    if lower_name.endswith((".mp4", ".m4v", ".mov")):
+        mime_type = "video/mp4"
+    elif lower_name.endswith(".webm"):
+        mime_type = "video/webm"
+    elif lower_name.endswith((".mkv", ".avi", ".ts")):
+        # iOS Safari AVPlayer & Telegram WebApp natively decode H.264 video streams when served as video/mp4
+        mime_type = "video/mp4"
+    elif not raw_mime or raw_mime == "application/octet-stream":
+        mime_type = "video/mp4"
+    else:
+        mime_type = raw_mime
+
+    # Standard headers for all responses
+    base_headers = {
+        "Content-Type": mime_type,
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": f'inline; filename="{file_name}"',
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+        "Access-Control-Allow-Headers": "Range, Content-Range, Origin, Accept, Content-Type",
+        "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
+        "Content-Security-Policy": "frame-ancestors *",
+    }
+
+    # 3. Handle iOS Safari HEAD Probe Request
+    if request.method == "HEAD":
+        headers = {
+            **base_headers,
+            "Content-Length": str(file_size),
+        }
+        return web.Response(status=200, headers=headers)
+
+    # 4. Parse Range Header: bytes=start-end (including Safari bytes=0-1 test)
     range_header = request.headers.get("Range")
-    
     start = 0
     end = file_size - 1
 
@@ -291,7 +345,10 @@ async def handle_stream(request: web.Request) -> web.StreamResponse:
     if start > end or start >= file_size:
         return web.Response(
             status=416,
-            headers={"Content-Range": f"bytes */{file_size}"}
+            headers={
+                **base_headers,
+                "Content-Range": f"bytes */{file_size}",
+            }
         )
 
     end = min(end, file_size - 1)
@@ -300,13 +357,8 @@ async def handle_stream(request: web.Request) -> web.StreamResponse:
     # Prepare response headers for HTTP 206
     status = 206 if range_header else 200
     headers = {
-        "Content-Type": mime_type,
-        "Accept-Ranges": "bytes",
+        **base_headers,
         "Content-Length": str(content_length),
-        "Content-Disposition": f'inline; filename="{file_name}"',
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "Range, Content-Type",
-        "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
     }
 
     if status == 206:
@@ -315,16 +367,13 @@ async def handle_stream(request: web.Request) -> web.StreamResponse:
     response = web.StreamResponse(status=status, headers=headers)
     await response.prepare(request)
 
-    # Calculate MTProto chunk boundaries
+    # 5. Stream from Pyrogram/Hydrogram MTProto
     client = get_tg_client()
-    
-    # Calculate offset in 1MB chunks
     offset_chunks = math.floor(start / TG_CHUNK_SIZE)
     skip_bytes = start % TG_CHUNK_SIZE
     bytes_remaining = content_length
 
     try:
-        # Stream chunks from Pyrogram/Hydrogram
         async for chunk in client.stream_media(message, offset=offset_chunks):
             if skip_bytes > 0:
                 if len(chunk) <= skip_bytes:
@@ -342,17 +391,23 @@ async def handle_stream(request: web.Request) -> web.StreamResponse:
 
             if bytes_remaining <= 0:
                 break
-    except (ConnectionResetError, web.HTTPException, Exception) as e:
-        # Browser seeked away or closed tab - this is normal in HTTP streaming
+    except (ConnectionResetError, web.HTTPException, Exception):
+        # Client sought to new timestamp or closed tab
         pass
 
     return response
 
 
 def create_stream_app() -> web.Application:
-    """Builds and returns the aiohttp web application."""
+    """Builds and returns the aiohttp web application with route aliases."""
     app = web.Application()
     app.router.add_get("/", handle_home)
     app.router.add_get("/watch/{token}", handle_watch)
-    app.router.add_get("/stream/{token}", handle_stream)
+    
+    # Support both /stream/{token} and /dl/{token} with GET, HEAD, and OPTIONS
+    for path in ("/stream/{token}", "/dl/{token}"):
+        app.router.add_get(path, handle_stream)
+        app.router.add_head(path, handle_stream)
+        app.router.add_options(path, handle_stream)
+        
     return app
