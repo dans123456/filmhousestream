@@ -1,0 +1,11 @@
+# High-speed MTProto Telegram Client & Crypto
+hydrogram>=0.2.1
+tgcrypto>=1.2.5
+
+# Async HTTP 206 Streaming Web Engine
+aiohttp>=3.9.5
+aiofiles>=24.1.0
+
+# Environment & Config
+python-dotenv>=1.0.1
+pydantic>=2.7.0
