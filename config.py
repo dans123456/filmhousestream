@@ -21,6 +21,7 @@ BIN_CHANNEL_ID = int(os.getenv("BIN_CHANNEL_ID", "0"))
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8080"))
 SERVER_URL = os.getenv("SERVER_URL", f"http://localhost:{PORT}").rstrip("/")
+BLOGGER_URL = os.getenv("BLOGGER_URL", "https://filmhouse-player.blogspot.com").rstrip("/")
 
 # 4. Security & Protection
 SECRET_KEY = os.getenv("SECRET_KEY", "")

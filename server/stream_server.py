@@ -404,10 +404,9 @@ def create_stream_app() -> web.Application:
     app.router.add_get("/", handle_home)
     app.router.add_get("/watch/{token}", handle_watch)
     
-    # Support both /stream/{token} and /dl/{token} with GET, HEAD, and OPTIONS
+    # In aiohttp, add_get automatically registers both GET and HEAD!
     for path in ("/stream/{token}", "/dl/{token}"):
         app.router.add_get(path, handle_stream)
-        app.router.add_head(path, handle_stream)
-        app.router.add_options(path, handle_stream)
+        app.router.add_route("OPTIONS", path, handle_stream)
         
     return app

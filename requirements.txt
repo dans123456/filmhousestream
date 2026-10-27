@@ -1,5 +1,5 @@
 # High-speed MTProto Telegram Client & Crypto
-hydrogram>=0.2.1
+hydrogram==0.2.0
 tgcrypto>=1.2.5
 
 # Async HTTP 206 Streaming Web Engine
