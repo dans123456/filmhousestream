@@ -2,7 +2,7 @@ import asyncio
 import logging
 import urllib.parse
 from hydrogram import Client, filters
-from hydrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from hydrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, WebAppInfo
 from server.security import generate_stream_token
 from server.parser import parse_filename
 from server.stream_server import format_bytes
@@ -31,7 +31,9 @@ def build_blogspot_url(stream_url: str, title: str) -> str:
 
 def get_main_menu_keyboard() -> InlineKeyboardMarkup:
     """Constructs the interactive main dashboard buttons."""
+    library_url = f"{config.SERVER_URL}/library"
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📱 Open Media Library (WebApp)", web_app=WebAppInfo(url=library_url))],
         [InlineKeyboardButton("🍿 FilmHouse Blogspot", url=config.BLOGGER_URL)],
         [
             InlineKeyboardButton("⚙️ Server Status", callback_data="status_check"),
@@ -67,7 +69,7 @@ async def flush_batch(client: Client, user_id: int):
         try:
             # Post copy to bin channel without "Forwarded from" header
             forwarded = await msg.copy(config.BIN_CHANNEL_ID)
-            record_indexed_file(forwarded.id, file_name)
+            record_indexed_file(forwarded.id, file_name, parsed=parsed, file_size_str=file_size_str)
             token = generate_stream_token(forwarded.id)
             stream_url = f"{config.SERVER_URL}/dl/{token}"
             blogger_url = build_blogspot_url(stream_url, parsed["title"])
@@ -100,6 +102,7 @@ async def flush_batch(client: Client, user_id: int):
 
             buttons = [
                 [InlineKeyboardButton("🍿 Test on Blogspot", url=blogger_url)],
+                [InlineKeyboardButton("📱 View in Library (WebApp)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library"))],
                 [InlineKeyboardButton("⬇️ Direct Stream Link", url=stream_url)],
             ]
             await status_msg.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
@@ -133,7 +136,12 @@ async def flush_batch(client: Client, user_id: int):
             try:
                 # Post copy to bin channel without "Forwarded from" header
                 forwarded = await raw_msg.copy(config.BIN_CHANNEL_ID)
-                record_indexed_file(forwarded.id, ep_item["file_name"])
+                record_indexed_file(
+                    forwarded.id,
+                    ep_item["file_name"],
+                    parsed=ep_item["parsed"],
+                    file_size_str=ep_item["file_size_str"]
+                )
                 token = generate_stream_token(forwarded.id)
                 stream_url = f"{config.SERVER_URL}/dl/{token}"
 
@@ -175,6 +183,7 @@ async def flush_batch(client: Client, user_id: int):
         first_blogger = build_blogspot_url(first_stream, f"{show_title} S{season:02d}E01") if first_stream else config.BLOGGER_URL
         buttons = [
             [InlineKeyboardButton("🍿 Test Ep 1 on Blogspot", url=first_blogger)],
+            [InlineKeyboardButton("📱 View Library (All Episodes)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library"))],
         ]
 
         try:
@@ -234,6 +243,22 @@ def register_handlers(app: Client):
         if not is_authorized(message.from_user.id):
             return
         await send_bin_manager_menu(message)
+
+    @app.on_message(filters.command(["library", "app"]) & filters.private)
+    async def library_command_handler(client: Client, message: Message):
+        """Opens the FilmHouse Media Library Mini App."""
+        if not is_authorized(message.from_user.id):
+            return
+        web_url = f"{config.SERVER_URL}/library"
+        buttons = [
+            [InlineKeyboardButton("📱 Open Media Library (WebApp)", web_app=WebAppInfo(url=web_url))],
+            [InlineKeyboardButton("🌐 Open in Web Browser", url=web_url)],
+        ]
+        await message.reply_text(
+            "📚 **FilmHouse Media Library**\n\n"
+            "Browse, search, stream, and manage all your indexed movies and series directly inside Telegram:",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
 
     # ==========================================
     # Interactive Callback Handlers

@@ -6,6 +6,10 @@ from bot.client import get_tg_client, get_media_info
 from server.security import verify_stream_token, is_origin_allowed
 from server.parser import parse_filename
 from server.cache import get_cached_chunk, store_cached_chunk, get_cache_stats
+from server.security import generate_stream_token
+from bot.storage import get_tracked_files, remove_tracked_files
+from server.library_template import LIBRARY_HTML
+import urllib.parse
 import config
 
 logger = logging.getLogger("filmhouse.stream")
@@ -572,10 +576,76 @@ async def handle_stream(request: web.Request) -> web.StreamResponse:
     return response
 
 
+async def handle_library(request: web.Request) -> web.Response:
+    """Renders the mobile-first Telegram Mini App Library."""
+    return web.Response(
+        text=LIBRARY_HTML,
+        content_type="text/html",
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Content-Security-Policy": "frame-ancestors *",
+        }
+    )
+
+
+async def handle_api_media(request: web.Request) -> web.Response:
+    """Returns JSON array of all tracked media items."""
+    records = get_tracked_files()
+    items = []
+    for r in records:
+        mid = r["message_id"]
+        fn = r.get("file_name", f"video_{mid}.mp4")
+        parsed = r.get("parsed") or parse_filename(fn)
+        token = generate_stream_token(mid)
+        stream_url = f"{config.SERVER_URL}/dl/{token}"
+        watch_url = f"{config.SERVER_URL}/watch/{token}"
+        encoded_stream = urllib.parse.quote(stream_url, safe="")
+        encoded_title = urllib.parse.quote(parsed.get("title", fn), safe="")
+        blogger_url = f"{config.BLOGGER_URL}/?watch={encoded_stream}&title={encoded_title}"
+
+        items.append({
+            "message_id": mid,
+            "file_name": fn,
+            "display_name": parsed.get("clean_name") or fn,
+            "quality": parsed.get("quality") or "HD",
+            "is_series": parsed.get("is_series", False),
+            "file_size_str": r.get("file_size_str", ""),
+            "stream_url": stream_url,
+            "watch_url": watch_url,
+            "blogger_url": blogger_url,
+            "created_at": r.get("created_at", 0),
+        })
+
+    return web.json_response({
+        "total": len(items),
+        "items": items,
+    }, headers={"Access-Control-Allow-Origin": "*"})
+
+
+async def handle_api_delete(request: web.Request) -> web.Response:
+    """Deletes an item from the bin channel and local ledger."""
+    try:
+        data = await request.json()
+        mid = data.get("message_id")
+        if not mid:
+            return web.json_response({"success": False, "error": "Missing message_id"}, status=400)
+
+        client = get_tg_client()
+        await client.delete_messages(config.BIN_CHANNEL_ID, [int(mid)])
+        remove_tracked_files([int(mid)])
+        return web.json_response({"success": True}, headers={"Access-Control-Allow-Origin": "*"})
+    except Exception as e:
+        logger.error(f"Error in handle_api_delete: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
+
+
 def create_stream_app() -> web.Application:
     """Builds and returns the aiohttp web application with route aliases."""
     app = web.Application()
     app.router.add_get("/", handle_home)
+    app.router.add_get("/library", handle_library)
+    app.router.add_get("/api/media", handle_api_media)
+    app.router.add_post("/api/media/delete", handle_api_delete)
     app.router.add_get("/watch/{token}", handle_watch)
     
     # In aiohttp, add_get automatically registers both GET and HEAD!

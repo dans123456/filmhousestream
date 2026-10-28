@@ -17,8 +17,10 @@ def _ensure_storage():
             json.dump([], f)
 
 
-def record_indexed_file(message_id: int, file_name: str):
-    """Save forwarded message_id and filename to the tracking ledger."""
+import time
+
+def record_indexed_file(message_id: int, file_name: str, parsed: dict = None, file_size_str: str = None):
+    """Save forwarded message_id, filename, and parsed metadata to the tracking ledger."""
     _ensure_storage()
     try:
         with open(STORAGE_FILE, "r", encoding="utf-8") as f:
@@ -29,6 +31,9 @@ def record_indexed_file(message_id: int, file_name: str):
     records.append({
         "message_id": message_id,
         "file_name": file_name,
+        "parsed": parsed or {},
+        "file_size_str": file_size_str or "",
+        "created_at": int(time.time()),
     })
 
     try:
