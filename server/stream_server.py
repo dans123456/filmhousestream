@@ -733,14 +733,26 @@ async def handle_api_delete(request: web.Request) -> web.Response:
 
     try:
         data = await request.json()
-        mid = data.get("message_id")
-        if not mid:
-            return web.json_response({"success": False, "error": "Missing message_id"}, status=400, headers={"Access-Control-Allow-Origin": "*"})
+        mids = data.get("message_ids")
+        if not mids:
+            single_mid = data.get("message_id")
+            if single_mid:
+                mids = [single_mid]
 
+        if not mids:
+            return web.json_response({"success": False, "error": "Missing message_id(s)"}, status=400, headers={"Access-Control-Allow-Origin": "*"})
+
+        mids = [int(m) for m in mids]
         client = get_tg_client()
-        await client.delete_messages(config.BIN_CHANNEL_ID, [int(mid)])
-        remove_tracked_files([int(mid)])
-        return web.json_response({"success": True}, headers={"Access-Control-Allow-Origin": "*"})
+        for i in range(0, len(mids), 50):
+            chunk = mids[i:i + 50]
+            try:
+                await client.delete_messages(config.BIN_CHANNEL_ID, chunk)
+            except Exception as e:
+                logger.error(f"Error deleting batch from Telegram: {e}")
+
+        remove_tracked_files(mids)
+        return web.json_response({"success": True, "deleted_count": len(mids)}, headers={"Access-Control-Allow-Origin": "*"})
     except Exception as e:
         logger.error(f"Error in handle_api_delete: {e}")
         return web.json_response({"success": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})

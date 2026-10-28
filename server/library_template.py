@@ -38,7 +38,7 @@ LIBRARY_HTML = """<!DOCTYPE html>
       width: 100%;
       max-width: 580px;
       margin: 0 auto;
-      padding: max(14px, env(safe-area-inset-top)) 14px max(24px, env(safe-area-inset-bottom)) 14px;
+      padding: max(14px, env(safe-area-inset-top)) 14px 100px 14px;
       position: relative;
       z-index: 1;
     }
@@ -75,6 +75,12 @@ LIBRARY_HTML = """<!DOCTYPE html>
       letter-spacing: -0.01em;
       line-height: 1.2;
     }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
     .stats-badge {
       font-size: 0.72rem;
       font-weight: 700;
@@ -84,7 +90,22 @@ LIBRARY_HTML = """<!DOCTYPE html>
       color: #ffbc00;
       border: 1px solid rgba(255, 188, 0, 0.25);
       white-space: nowrap;
-      flex-shrink: 0;
+    }
+    .btn-select-toggle {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: rgba(99, 102, 241, 0.15);
+      color: #a5b4fc;
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-select-toggle.active {
+      background: #6366f1;
+      color: #fff;
+      border-color: #6366f1;
     }
     .search-box {
       width: 100%;
@@ -175,17 +196,40 @@ LIBRARY_HTML = """<!DOCTYPE html>
       display: flex;
       flex-direction: column;
       gap: 10px;
-      transition: border-color 0.2s ease;
+      transition: all 0.2s ease;
+      position: relative;
     }
-    .media-card:hover {
-      border-color: rgba(99, 102, 241, 0.35);
+    .media-card.selected {
+      border-color: rgba(255, 188, 0, 0.5);
+      background: rgba(30, 28, 22, 0.95);
+      box-shadow: 0 0 16px rgba(255, 188, 0, 0.15);
     }
     .card-top {
       display: flex;
       align-items: flex-start;
-      justify-content: space-between;
       gap: 10px;
       width: 100%;
+    }
+    .card-checkbox {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      margin-top: 2px;
+      flex-shrink: 0;
+    }
+    .card-checkbox input[type="checkbox"] {
+      width: 20px;
+      height: 20px;
+      accent-color: #ffbc00;
+      cursor: pointer;
+      border-radius: 5px;
+    }
+    .select-mode-active .card-checkbox {
+      display: flex;
+    }
+    .card-title-wrap {
+      flex: 1;
+      min-width: 0;
     }
     .card-title {
       font-size: 0.96rem;
@@ -194,7 +238,6 @@ LIBRARY_HTML = """<!DOCTYPE html>
       line-height: 1.35;
       word-break: break-word;
       overflow-wrap: break-word;
-      flex: 1;
     }
     .badge-quality {
       font-size: 0.7rem;
@@ -318,6 +361,69 @@ LIBRARY_HTML = """<!DOCTYPE html>
       display: none;
       white-space: nowrap;
     }
+
+    /* Floating Bulk Delete Action Bar */
+    .bulk-bar {
+      position: fixed;
+      bottom: max(14px, env(safe-area-inset-bottom));
+      left: 50%;
+      transform: translateX(-50%);
+      width: calc(100% - 28px);
+      max-width: 550px;
+      background: #141724;
+      border: 1px solid rgba(255, 188, 0, 0.35);
+      border-radius: 16px;
+      padding: 10px 14px;
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+      z-index: 200;
+    }
+    .bulk-count {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #ffbc00;
+      white-space: nowrap;
+    }
+    .btn-bulk-text {
+      background: transparent;
+      border: none;
+      color: #a5b4fc;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .btn-bulk-delete {
+      padding: 8px 16px;
+      background: #ef4444;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-bulk-delete:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .btn-bulk-cancel {
+      background: rgba(255, 255, 255, 0.08);
+      border: none;
+      color: #94a3b8;
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+
     .auth-overlay {
       position: fixed;
       top: 0;
@@ -410,7 +516,10 @@ LIBRARY_HTML = """<!DOCTYPE html>
           <h1>FilmHouse Library</h1>
         </div>
       </div>
-      <span id="statsBadge" class="stats-badge">Loading...</span>
+      <div class="header-actions">
+        <span id="statsBadge" class="stats-badge">Loading...</span>
+        <button id="selectToggleBtn" class="btn-select-toggle" onclick="toggleSelectMode()">☑️ Select</button>
+      </div>
     </div>
 
     <div class="search-box">
@@ -428,6 +537,16 @@ LIBRARY_HTML = """<!DOCTYPE html>
     <div id="mediaGrid" class="media-grid">
       <!-- Media Cards Injected Here -->
     </div>
+  </div>
+
+  <!-- Floating Bulk Action Bar -->
+  <div id="bulkActionBar" class="bulk-bar">
+    <button class="btn-bulk-text" onclick="toggleSelectAll()">
+      <span id="selectAllIcon">☑️</span> <span id="selectAllLabel">All</span>
+    </button>
+    <span id="selectedCountBadge" class="bulk-count">0 Selected</span>
+    <button id="bulkDeleteBtn" class="btn-bulk-delete" onclick="executeBulkDelete()" disabled>🗑️ Delete</button>
+    <button class="btn-bulk-cancel" onclick="exitSelectMode()" title="Cancel Selection">✕</button>
   </div>
 
   <div id="copyToast" class="toast">✅ Stream URL copied to clipboard!</div>
@@ -457,6 +576,8 @@ LIBRARY_HTML = """<!DOCTYPE html>
 
     let allMedia = [];
     let currentFilter = "all";
+    let isSelectMode = false;
+    let selectedIds = new Set();
 
     function showToast(text) {
       const toast = document.getElementById('copyToast');
@@ -555,6 +676,110 @@ LIBRARY_HTML = """<!DOCTYPE html>
       }
     }
 
+    // Toggle Multi-Select Mode
+    function toggleSelectMode() {
+      isSelectMode = !isSelectMode;
+      const btn = document.getElementById('selectToggleBtn');
+      const bulkBar = document.getElementById('bulkActionBar');
+      const grid = document.getElementById('mediaGrid');
+
+      if (isSelectMode) {
+        btn.classList.add('active');
+        btn.textContent = 'Done';
+        bulkBar.style.display = 'flex';
+        grid.classList.add('select-mode-active');
+      } else {
+        exitSelectMode();
+      }
+      updateBulkUI();
+    }
+
+    function exitSelectMode() {
+      isSelectMode = false;
+      selectedIds.clear();
+      document.getElementById('selectToggleBtn').classList.remove('active');
+      document.getElementById('selectToggleBtn').textContent = '☑️ Select';
+      document.getElementById('bulkActionBar').style.display = 'none';
+      document.getElementById('mediaGrid').classList.remove('select-mode-active');
+      document.querySelectorAll('.media-card').forEach(c => c.classList.remove('selected'));
+      document.querySelectorAll('.card-checkbox input').forEach(cb => cb.checked = false);
+    }
+
+    function onCardCheck(event, messageId) {
+      event.stopPropagation();
+      const card = document.getElementById(`card-${messageId}`);
+      if (event.target.checked) {
+        selectedIds.add(messageId);
+        card?.classList.add('selected');
+      } else {
+        selectedIds.delete(messageId);
+        card?.classList.remove('selected');
+      }
+      updateBulkUI();
+    }
+
+    function toggleSelectAll() {
+      const query = document.getElementById('searchInput').value.toLowerCase().trim();
+      const visible = allMedia.filter(item => {
+        const titleMatch = (item.display_name || item.file_name).toLowerCase().includes(query);
+        if (!titleMatch) return false;
+        if (currentFilter === "series") return item.is_series;
+        if (currentFilter === "movies") return !item.is_series;
+        return true;
+      });
+
+      if (selectedIds.size === visible.length && visible.length > 0) {
+        // Deselect all
+        selectedIds.clear();
+      } else {
+        // Select all visible
+        visible.forEach(item => selectedIds.add(item.message_id));
+      }
+      renderMedia();
+      updateBulkUI();
+    }
+
+    function updateBulkUI() {
+      const count = selectedIds.size;
+      const countBadge = document.getElementById('selectedCountBadge');
+      const deleteBtn = document.getElementById('bulkDeleteBtn');
+      const selectAllLabel = document.getElementById('selectAllLabel');
+
+      countBadge.textContent = `${count} Selected`;
+      deleteBtn.disabled = count === 0;
+      deleteBtn.textContent = count > 0 ? `🗑️ Delete (${count})` : '🗑️ Delete';
+
+      const visibleCount = document.querySelectorAll('.media-card').length;
+      selectAllLabel.textContent = (count === visibleCount && visibleCount > 0) ? 'None' : 'All';
+    }
+
+    async function executeBulkDelete() {
+      const count = selectedIds.size;
+      if (count === 0) return;
+      if (!confirm(`Permanently delete ${count} selected files from your storage channel?`)) return;
+
+      const idsToDelete = Array.from(selectedIds);
+      try {
+        const res = await fetch('/api/media/delete', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ message_ids: idsToDelete })
+        });
+        const result = await res.json();
+        if (result.success) {
+          showToast(`🗑️ ${count} items deleted!`);
+          allMedia = allMedia.filter(m => !selectedIds.has(m.message_id));
+          document.getElementById('statsBadge').textContent = `${allMedia.length} Titles`;
+          exitSelectMode();
+          renderMedia();
+        } else {
+          alert("Error: " + (result.error || "Could not delete items."));
+        }
+      } catch (e) {
+        alert("Failed to delete items: " + e.message);
+      }
+    }
+
     async function deleteMedia(messageId, title) {
       if (!confirm(`Delete "${title}" from your storage channel permanently?`)) return;
       try {
@@ -605,10 +830,18 @@ LIBRARY_HTML = """<!DOCTYPE html>
         return;
       }
 
-      grid.innerHTML = filtered.map(item => `
-        <div class="media-card">
+      grid.innerHTML = filtered.map(item => {
+        const isChecked = selectedIds.has(item.message_id);
+        const cardClass = isChecked ? 'media-card selected' : 'media-card';
+        return `
+        <div id="card-${item.message_id}" class="${cardClass}">
           <div class="card-top">
-            <div class="card-title">${escapeHtml(item.display_name)}</div>
+            <div class="card-checkbox">
+              <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="onCardCheck(event, ${item.message_id})">
+            </div>
+            <div class="card-title-wrap">
+              <div class="card-title">${escapeHtml(item.display_name)}</div>
+            </div>
             <span class="badge-quality">${escapeHtml(item.quality || 'HD')}</span>
           </div>
           <div class="card-meta">
@@ -626,7 +859,12 @@ LIBRARY_HTML = """<!DOCTYPE html>
             </div>
           </div>
         </div>
-      `).join('');
+      `;
+      }).join('');
+
+      if (isSelectMode) {
+        grid.classList.add('select-mode-active');
+      }
     }
 
     function clearSearch() {
