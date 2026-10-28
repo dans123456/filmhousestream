@@ -10,6 +10,8 @@ from server.security import (
     verify_admin_access,
     check_rate_limit,
 )
+from server.parser import parse_filename
+from server.cache import get_cached_chunk, store_cached_chunk, get_cache_stats
 from bot.storage import get_tracked_files, remove_tracked_files
 from server.library_template import LIBRARY_HTML
 import urllib.parse
