@@ -65,7 +65,8 @@ async def flush_batch(client: Client, user_id: int):
         file_size_str = item["file_size_str"]
 
         try:
-            forwarded = await msg.forward(config.BIN_CHANNEL_ID)
+            # Post copy to bin channel without "Forwarded from" header
+            forwarded = await msg.copy(config.BIN_CHANNEL_ID)
             record_indexed_file(forwarded.id, file_name)
             token = generate_stream_token(forwarded.id)
             stream_url = f"{config.SERVER_URL}/dl/{token}"
@@ -130,8 +131,8 @@ async def flush_batch(client: Client, user_id: int):
         for idx, ep_item in enumerate(ep_items, start=1):
             raw_msg: Message = ep_item["msg"]
             try:
-                # Forward to bin channel in sequence
-                forwarded = await raw_msg.forward(config.BIN_CHANNEL_ID)
+                # Post copy to bin channel without "Forwarded from" header
+                forwarded = await raw_msg.copy(config.BIN_CHANNEL_ID)
                 record_indexed_file(forwarded.id, ep_item["file_name"])
                 token = generate_stream_token(forwarded.id)
                 stream_url = f"{config.SERVER_URL}/dl/{token}"
