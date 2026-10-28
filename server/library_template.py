@@ -2,38 +2,43 @@ LIBRARY_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>FilmHouse Cinema Library</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
-    * {
+    *, *::before, *::after {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
-      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
-    body {
+    html, body {
+      width: 100%;
+      max-width: 100vw;
+      min-height: 100vh;
+      overflow-x: hidden;
       background: #090a0f;
       color: #f1f5f9;
-      min-height: 100vh;
-      padding: 16px;
-      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      -webkit-tap-highlight-color: transparent;
     }
     .glow-bg {
       position: fixed;
-      top: -100px;
-      right: -100px;
-      width: 400px;
-      height: 400px;
-      background: radial-gradient(circle, rgba(99, 102, 241, 0.12) 0%, rgba(0, 0, 0, 0) 70%);
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: radial-gradient(circle at 80% 10%, rgba(99, 102, 241, 0.14) 0%, rgba(9, 10, 15, 0) 65%);
       pointer-events: none;
       z-index: 0;
     }
     .container {
-      max-width: 900px;
+      width: 100%;
+      max-width: 580px;
       margin: 0 auto;
+      padding: max(14px, env(safe-area-inset-top)) 14px max(24px, env(safe-area-inset-bottom)) 14px;
       position: relative;
       z-index: 1;
     }
@@ -41,81 +46,105 @@ LIBRARY_HTML = """<!DOCTYPE html>
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 16px;
-      flex-wrap: wrap;
-      gap: 12px;
+      margin-bottom: 14px;
+      gap: 10px;
     }
     .brand {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
     }
     .logo {
       width: 38px;
       height: 38px;
       background: linear-gradient(135deg, #ffd700, #ff8c00);
-      border-radius: 10px;
+      border-radius: 11px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-weight: 700;
+      font-weight: 800;
       font-size: 20px;
       color: #000;
-      box-shadow: 0 4px 14px rgba(255, 188, 0, 0.4);
+      box-shadow: 0 4px 14px rgba(255, 188, 0, 0.35);
+      flex-shrink: 0;
     }
     .title-area h1 {
       font-size: 1.25rem;
       font-weight: 700;
       color: #fff;
       letter-spacing: -0.01em;
+      line-height: 1.2;
     }
     .stats-badge {
-      font-size: 0.75rem;
+      font-size: 0.72rem;
       font-weight: 700;
       padding: 4px 10px;
       border-radius: 20px;
-      background: rgba(255, 188, 0, 0.15);
+      background: rgba(255, 188, 0, 0.12);
       color: #ffbc00;
-      border: 1px solid rgba(255, 188, 0, 0.3);
+      border: 1px solid rgba(255, 188, 0, 0.25);
+      white-space: nowrap;
+      flex-shrink: 0;
     }
     .search-box {
       width: 100%;
       position: relative;
-      margin-bottom: 14px;
+      margin-bottom: 12px;
     }
     .search-input {
       width: 100%;
-      padding: 12px 16px 12px 42px;
+      padding: 11px 36px 11px 38px;
       border-radius: 12px;
-      background: rgba(18, 20, 29, 0.85);
+      background: rgba(18, 20, 29, 0.9);
       border: 1px solid rgba(255, 255, 255, 0.1);
       color: #fff;
-      font-size: 0.92rem;
+      font-size: 0.9rem;
       outline: none;
       transition: all 0.2s ease;
     }
     .search-input:focus {
       border-color: #6366f1;
-      box-shadow: 0 0 15px rgba(99, 102, 241, 0.3);
+      background: rgba(22, 25, 38, 0.95);
+      box-shadow: 0 0 14px rgba(99, 102, 241, 0.25);
     }
     .search-icon {
       position: absolute;
-      left: 14px;
+      left: 12px;
       top: 50%;
       transform: translateY(-50%);
       color: #94a3b8;
-      font-size: 1rem;
+      font-size: 0.95rem;
+      pointer-events: none;
+    }
+    .search-clear {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #64748b;
+      cursor: pointer;
+      display: none;
+      font-size: 0.9rem;
+      padding: 4px;
     }
     .filter-tabs {
       display: flex;
       gap: 8px;
-      margin-bottom: 16px;
+      margin-bottom: 14px;
       overflow-x: auto;
-      padding-bottom: 4px;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+      padding-bottom: 2px;
+      width: 100%;
+    }
+    .filter-tabs::-webkit-scrollbar {
+      display: none;
     }
     .tab {
-      padding: 6px 14px;
-      border-radius: 8px;
+      flex: 1 0 auto;
+      text-align: center;
+      padding: 7px 14px;
+      border-radius: 9px;
       font-size: 0.8rem;
       font-weight: 600;
       background: rgba(255, 255, 255, 0.05);
@@ -129,125 +158,172 @@ LIBRARY_HTML = """<!DOCTYPE html>
       background: #6366f1;
       color: #fff;
       border-color: #6366f1;
+      box-shadow: 0 2px 10px rgba(99, 102, 241, 0.35);
     }
     .media-grid {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 12px;
-    }
-    .media-card {
-      background: rgba(18, 20, 29, 0.9);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 14px;
-      padding: 14px 16px;
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      transition: all 0.2s ease;
+      gap: 12px;
+      width: 100%;
+    }
+    .media-card {
+      width: 100%;
+      background: rgba(18, 20, 29, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: border-color 0.2s ease;
     }
     .media-card:hover {
-      border-color: rgba(99, 102, 241, 0.4);
+      border-color: rgba(99, 102, 241, 0.35);
     }
     .card-top {
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
       gap: 10px;
+      width: 100%;
     }
     .card-title {
-      font-size: 0.95rem;
-      font-weight: 600;
+      font-size: 0.96rem;
+      font-weight: 700;
       color: #f8fafc;
       line-height: 1.35;
+      word-break: break-word;
+      overflow-wrap: break-word;
+      flex: 1;
     }
     .badge-quality {
       font-size: 0.7rem;
       font-weight: 700;
-      padding: 2px 7px;
+      padding: 2px 8px;
       border-radius: 6px;
       background: rgba(99, 102, 241, 0.2);
-      color: #818cf8;
-      border: 1px solid rgba(99, 102, 241, 0.3);
+      color: #a5b4fc;
+      border: 1px solid rgba(99, 102, 241, 0.35);
       white-space: nowrap;
       flex-shrink: 0;
     }
     .card-meta {
-      font-size: 0.78rem;
-      color: #94a3b8;
       display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
+      flex-direction: column;
+      gap: 6px;
+      width: 100%;
+    }
+    .file-badge {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.72rem;
+      color: #94a3b8;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      padding: 5px 8px;
+      border-radius: 8px;
+      word-break: break-all;
+      overflow-wrap: anywhere;
+      line-height: 1.3;
+    }
+    .size-badge {
+      font-size: 0.73rem;
+      color: #cbd5e1;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
     }
     .card-actions {
       display: flex;
+      flex-direction: column;
       gap: 8px;
-      flex-wrap: wrap;
-      margin-top: 4px;
+      width: 100%;
+      margin-top: 2px;
+    }
+    .action-row {
+      display: flex;
+      gap: 8px;
+      width: 100%;
     }
     .btn {
-      padding: 6px 12px;
-      border-radius: 8px;
-      font-size: 0.78rem;
+      min-height: 38px;
+      padding: 8px 12px;
+      border-radius: 10px;
+      font-size: 0.8rem;
       font-weight: 600;
       text-decoration: none;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
+      justify-content: center;
       gap: 6px;
       border: 1px solid rgba(255, 255, 255, 0.1);
-      transition: all 0.2s ease;
+      transition: all 0.15s ease;
+      user-select: none;
+    }
+    .btn:active {
+      transform: scale(0.97);
     }
     .btn-watch {
-      background: #6366f1;
+      flex: 1;
+      background: linear-gradient(135deg, #6366f1, #7c3aed);
       color: #fff;
       border-color: #6366f1;
+      font-weight: 700;
+      box-shadow: 0 3px 10px rgba(99, 102, 241, 0.3);
     }
-    .btn-watch:hover {
-      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
-    }
-    .btn-copy {
-      background: #1e2235;
+    .btn-blogger {
+      flex: 1;
+      background: #191c2b;
       color: #ffbc00;
       border-color: rgba(255, 188, 0, 0.3);
+      font-weight: 600;
     }
-    .btn-copy:hover {
-      background: rgba(255, 188, 0, 0.15);
+    .btn-copy {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.05);
+      color: #e2e8f0;
+      border-color: rgba(255, 255, 255, 0.1);
     }
     .btn-del {
+      width: 40px;
+      flex-shrink: 0;
       background: rgba(239, 68, 68, 0.12);
       color: #fca5a5;
       border-color: rgba(239, 68, 68, 0.25);
-      margin-left: auto;
+      padding: 0;
     }
-    .btn-del:hover {
-      background: rgba(239, 68, 68, 0.3);
+    .btn-del:active {
+      background: rgba(239, 68, 68, 0.25);
     }
     .empty-state {
       text-align: center;
-      padding: 40px 20px;
+      padding: 40px 16px;
       color: #94a3b8;
+      font-size: 0.88rem;
     }
     .toast {
       position: fixed;
-      bottom: 20px;
+      bottom: max(20px, env(safe-area-inset-bottom));
       left: 50%;
       transform: translateX(-50%);
       background: #10b981;
       color: #fff;
       font-weight: 600;
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       padding: 8px 18px;
       border-radius: 20px;
-      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
       z-index: 100;
       display: none;
+      white-space: nowrap;
     }
     .auth-overlay {
       position: fixed;
       top: 0;
       left: 0;
-      width: 100%;
-      height: 100%;
+      width: 100vw;
+      height: 100vh;
       background: rgba(9, 10, 15, 0.95);
       backdrop-filter: blur(14px);
       display: none;
@@ -255,30 +331,32 @@ LIBRARY_HTML = """<!DOCTYPE html>
       justify-content: center;
       z-index: 1000;
       padding: 20px;
+      box-sizing: border-box;
     }
     .auth-card {
       background: #141724;
       border: 1px solid rgba(255, 188, 0, 0.35);
       border-radius: 18px;
-      padding: 32px 24px;
-      max-width: 380px;
+      padding: 28px 20px;
+      max-width: 360px;
       width: 100%;
       text-align: center;
       box-shadow: 0 12px 50px rgba(0, 0, 0, 0.8);
+      box-sizing: border-box;
     }
     .auth-icon {
       font-size: 2.2rem;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
     .auth-card h2 {
-      font-size: 1.25rem;
+      font-size: 1.2rem;
       color: #fff;
       margin-bottom: 6px;
     }
     .auth-card p {
-      font-size: 0.82rem;
+      font-size: 0.8rem;
       color: #94a3b8;
-      margin-bottom: 20px;
+      margin-bottom: 18px;
       line-height: 1.4;
     }
     .auth-input {
@@ -291,8 +369,9 @@ LIBRARY_HTML = """<!DOCTYPE html>
       font-size: 0.92rem;
       text-align: center;
       letter-spacing: 1px;
-      margin-bottom: 14px;
+      margin-bottom: 12px;
       outline: none;
+      box-sizing: border-box;
     }
     .auth-input:focus {
       border-color: #ffbc00;
@@ -308,11 +387,10 @@ LIBRARY_HTML = """<!DOCTYPE html>
       font-weight: 700;
       font-size: 0.92rem;
       cursor: pointer;
-      transition: all 0.2s;
+      box-sizing: border-box;
     }
-    .auth-btn:hover {
-      opacity: 0.92;
-      transform: translateY(-1px);
+    .auth-btn:active {
+      transform: scale(0.98);
     }
     .auth-error {
       color: #ef4444;
@@ -337,7 +415,8 @@ LIBRARY_HTML = """<!DOCTYPE html>
 
     <div class="search-box">
       <span class="search-icon">🔍</span>
-      <input type="text" id="searchInput" class="search-input" placeholder="Search by movie title, episode, or season...">
+      <input type="text" id="searchInput" class="search-input" placeholder="Search movies, episodes, seasons...">
+      <span id="searchClear" class="search-clear" onclick="clearSearch()">✕</span>
     </div>
 
     <div class="filter-tabs">
@@ -370,6 +449,10 @@ LIBRARY_HTML = """<!DOCTYPE html>
     if (window.Telegram && window.Telegram.WebApp) {
       window.Telegram.WebApp.ready();
       window.Telegram.WebApp.expand();
+      try {
+        window.Telegram.WebApp.setHeaderColor('#090a0f');
+        window.Telegram.WebApp.setBackgroundColor('#090a0f');
+      } catch(e) {}
     }
 
     let allMedia = [];
@@ -379,15 +462,19 @@ LIBRARY_HTML = """<!DOCTYPE html>
       const toast = document.getElementById('copyToast');
       toast.textContent = text;
       toast.style.display = 'block';
-      setTimeout(() => { toast.style.display = 'none'; }, 2000);
+      setTimeout(() => { toast.style.display = 'none'; }, 2200);
     }
 
     function copyToClipboard(text) {
-      navigator.clipboard.writeText(text).then(() => {
-        showToast("✅ Stream URL copied to clipboard!");
-      }).catch(() => {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          showToast("✅ Stream URL copied!");
+        }).catch(() => {
+          prompt("Copy Stream URL:", text);
+        });
+      } else {
         prompt("Copy Stream URL:", text);
-      });
+      }
     }
 
     function showAuthModal() {
@@ -435,7 +522,7 @@ LIBRARY_HTML = """<!DOCTYPE html>
         document.getElementById('statsBadge').textContent = `${allMedia.length} Titles`;
         renderMedia();
       } catch (e) {
-        document.getElementById('mediaGrid').innerHTML = '<div class="empty-state">Failed to load media: ' + e.message + '</div>';
+        document.getElementById('mediaGrid').innerHTML = '<div class="empty-state">Failed to load media. Check network connection.</div>';
       }
     }
 
@@ -469,7 +556,7 @@ LIBRARY_HTML = """<!DOCTYPE html>
     }
 
     async function deleteMedia(messageId, title) {
-      if (!confirm(`Are you sure you want to delete "${title}" from your storage channel?`)) return;
+      if (!confirm(`Delete "${title}" from your storage channel permanently?`)) return;
       try {
         const res = await fetch('/api/media/delete', {
           method: 'POST',
@@ -490,6 +577,16 @@ LIBRARY_HTML = """<!DOCTYPE html>
       }
     }
 
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/'/g, '&#39;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
     function renderMedia() {
       const grid = document.getElementById('mediaGrid');
       const query = document.getElementById('searchInput').value.toLowerCase().trim();
@@ -504,28 +601,39 @@ LIBRARY_HTML = """<!DOCTYPE html>
       });
 
       if (filtered.length === 0) {
-        grid.innerHTML = '<div class="empty-state">No media matches your search.</div>';
+        grid.innerHTML = '<div class="empty-state">No media found matching your filter.</div>';
         return;
       }
 
       grid.innerHTML = filtered.map(item => `
         <div class="media-card">
           <div class="card-top">
-            <div class="card-title">${item.display_name}</div>
-            <span class="badge-quality">${item.quality || 'HD'}</span>
+            <div class="card-title">${escapeHtml(item.display_name)}</div>
+            <span class="badge-quality">${escapeHtml(item.quality || 'HD')}</span>
           </div>
           <div class="card-meta">
-            <span>📁 ${item.file_name}</span>
-            ${item.file_size_str ? `<span>📦 ${item.file_size_str}</span>` : ''}
+            <div class="file-badge">📁 ${escapeHtml(item.file_name)}</div>
+            ${item.file_size_str ? `<span class="size-badge">📦 ${escapeHtml(item.file_size_str)}</span>` : ''}
           </div>
           <div class="card-actions">
-            <a href="${item.watch_url}" target="_blank" class="btn btn-watch">▶ Play</a>
-            <button onclick="copyToClipboard('${item.stream_url}')" class="btn btn-copy">📋 Copy Link</button>
-            <a href="${item.blogger_url}" target="_blank" class="btn" style="background:#141724;color:#ffbc00;">🍿 Blogspot</a>
-            <button onclick="deleteMedia(${item.message_id}, '${item.display_name}')" class="btn btn-del">🗑️</button>
+            <div class="action-row">
+              <a href="${item.watch_url}" target="_blank" class="btn btn-watch">▶ Play Stream</a>
+              <a href="${item.blogger_url}" target="_blank" class="btn btn-blogger">🍿 Blogspot</a>
+            </div>
+            <div class="action-row">
+              <button onclick="copyToClipboard('${item.stream_url}')" class="btn btn-copy">📋 Copy Stream Link</button>
+              <button onclick="deleteMedia(${item.message_id}, '${escapeHtml(item.display_name)}')" class="btn btn-del" title="Delete from Storage">🗑️</button>
+            </div>
           </div>
         </div>
       `).join('');
+    }
+
+    function clearSearch() {
+      const input = document.getElementById('searchInput');
+      input.value = '';
+      document.getElementById('searchClear').style.display = 'none';
+      renderMedia();
     }
 
     // Filter tabs
@@ -538,7 +646,11 @@ LIBRARY_HTML = """<!DOCTYPE html>
       });
     });
 
-    document.getElementById('searchInput').addEventListener('input', renderMedia);
+    const searchInput = document.getElementById('searchInput');
+    searchInput.addEventListener('input', () => {
+      document.getElementById('searchClear').style.display = searchInput.value ? 'block' : 'none';
+      renderMedia();
+    });
 
     // Initial load
     loadMedia();

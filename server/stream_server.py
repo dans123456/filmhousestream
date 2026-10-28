@@ -668,7 +668,16 @@ async def handle_api_media(request: web.Request) -> web.Response:
     for r in records:
         mid = r["message_id"]
         fn = r.get("file_name", f"video_{mid}.mp4")
-        parsed = r.get("parsed") or parse_filename(fn)
+        parsed = parse_filename(fn)
+        if parsed.get("is_series"):
+            s_str = f"S{parsed['season']:02d}" if parsed.get("season") else "S01"
+            e_str = f"E{parsed['episode']:02d}" if parsed.get("episode") else "E01"
+            ep_sub = f" — {parsed['episode_title']}" if parsed.get("episode_title") else ""
+            display_title = f"{parsed['title']} {s_str}{e_str}{ep_sub}"
+        else:
+            year_str = f" ({parsed['year']})" if parsed.get("year") else ""
+            display_title = f"{parsed['title']}{year_str}"
+
         token = generate_stream_token(mid)
         stream_url = f"{config.SERVER_URL}/dl/{token}"
         watch_url = f"{config.SERVER_URL}/watch/{token}"
@@ -679,7 +688,7 @@ async def handle_api_media(request: web.Request) -> web.Response:
         items.append({
             "message_id": mid,
             "file_name": fn,
-            "display_name": parsed.get("clean_name") or fn,
+            "display_name": display_title or fn,
             "quality": parsed.get("quality") or "HD",
             "is_series": parsed.get("is_series", False),
             "file_size_str": r.get("file_size_str", ""),

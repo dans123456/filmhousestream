@@ -9,6 +9,8 @@ CLEANUP_TAGS = [
     r"\b(aac|ac3|dts|eac3|mp3|flac|ddp5\.1|dd5\.1|5\.1ch)\b",
     r"\b(yts|rarbg|psa|pahe|galaxytv|galaxyrg|tgx|cinevood|katmoviehd|mkvcinemas|nk)\b",
     r"\b(esub|esubs|multisubs|multi-sub|dual audio|hindi|english|org)\b",
+    r"\b\d+(\.\d+)?\s*(mb|gb)\b",  # File sizes like 800mb, 1.4gb
+    r"\b(filmhouse|telefilm|stream)\b",
     r"\[.*?\]",  # Bracketed group names like [TGx]
     r"\(.*?\b(1080p|720p|bluray|web)\b.*?\)",
 ]
