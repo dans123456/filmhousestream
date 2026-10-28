@@ -5,6 +5,7 @@ from aiohttp import web
 from bot.client import get_tg_client, get_media_info
 from server.security import verify_stream_token, is_origin_allowed
 from server.parser import parse_filename
+from server.cache import get_cached_chunk, store_cached_chunk, get_cache_stats
 import config
 
 logger = logging.getLogger("filmhouse.stream")
@@ -346,11 +347,12 @@ def format_bytes(size: int) -> str:
 
 
 async def handle_home(request: web.Request) -> web.Response:
-    """Health check endpoint."""
+    """Health check endpoint with live cache stats."""
     return web.json_response({
         "status": "online",
         "service": "FilmHouse Telegram Streaming Engine",
-        "version": "1.0.0",
+        "version": "2.1.0",
+        "cache": get_cache_stats(),
     })
 
 
@@ -506,33 +508,66 @@ async def handle_stream(request: web.Request) -> web.StreamResponse:
     response = web.StreamResponse(status=status, headers=headers)
     await response.prepare(request)
 
-    # 5. Stream from Pyrogram/Hydrogram MTProto
-    client = get_tg_client()
+    # 5. Serve from RAM Cache first (0.001s instant seek)
     offset_chunks = math.floor(start / TG_CHUNK_SIZE)
     skip_bytes = start % TG_CHUNK_SIZE
     bytes_remaining = content_length
+    current_chunk_idx = offset_chunks
 
-    try:
-        async for chunk in client.stream_media(message, offset=offset_chunks):
-            if skip_bytes > 0:
-                if len(chunk) <= skip_bytes:
-                    skip_bytes -= len(chunk)
-                    continue
-                else:
-                    chunk = chunk[skip_bytes:]
-                    skip_bytes = 0
+    # Check RAM Cache
+    while bytes_remaining > 0:
+        cached_data = get_cached_chunk(message_id, current_chunk_idx)
+        if not cached_data:
+            break
 
-            if len(chunk) > bytes_remaining:
-                chunk = chunk[:bytes_remaining]
+        chunk = cached_data
+        if skip_bytes > 0:
+            if len(chunk) <= skip_bytes:
+                skip_bytes -= len(chunk)
+                current_chunk_idx += 1
+                continue
+            else:
+                chunk = chunk[skip_bytes:]
+                skip_bytes = 0
 
-            await response.write(chunk)
-            bytes_remaining -= len(chunk)
+        to_send = chunk[:bytes_remaining]
+        try:
+            await response.write(to_send)
+        except (ConnectionResetError, web.HTTPException, Exception):
+            return response
 
-            if bytes_remaining <= 0:
-                break
-    except (ConnectionResetError, web.HTTPException, Exception):
-        # Client sought to new timestamp or closed tab
-        pass
+        bytes_remaining -= len(to_send)
+        current_chunk_idx += 1
+
+    # 6. If remaining bytes needed, stream remainder from Telegram MTProto
+    if bytes_remaining > 0:
+        client = get_tg_client()
+        try:
+            async for chunk in client.stream_media(message, offset=current_chunk_idx):
+                # Cache initial chunks for future fast hits
+                store_cached_chunk(message_id, current_chunk_idx, chunk)
+
+                if skip_bytes > 0:
+                    if len(chunk) <= skip_bytes:
+                        skip_bytes -= len(chunk)
+                        current_chunk_idx += 1
+                        continue
+                    else:
+                        chunk = chunk[skip_bytes:]
+                        skip_bytes = 0
+
+                if len(chunk) > bytes_remaining:
+                    chunk = chunk[:bytes_remaining]
+
+                await response.write(chunk)
+                bytes_remaining -= len(chunk)
+                current_chunk_idx += 1
+
+                if bytes_remaining <= 0:
+                    break
+        except (ConnectionResetError, web.HTTPException, Exception):
+            # Client sought to new timestamp or closed tab
+            pass
 
     return response
 
