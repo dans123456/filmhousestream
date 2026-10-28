@@ -1,5 +1,6 @@
 import os
 import secrets
+import hashlib
 from pathlib import Path
 try:
     from dotenv import load_dotenv
@@ -37,6 +38,10 @@ else:
 # 5. Admin Authorization
 ADMIN_IDS_RAW = os.getenv("ADMIN_IDS", "")
 ADMIN_IDS = [int(x.strip()) for x in ADMIN_IDS_RAW.split(",") if x.strip().isdigit()]
+ADMIN_SECRET = os.getenv("ADMIN_SECRET", "")
+if not ADMIN_SECRET:
+    # Deterministic fallback based on SECRET_KEY if not explicitly specified
+    ADMIN_SECRET = hashlib.sha256((SECRET_KEY + ":admin_secret").encode("utf-8")).hexdigest()[:24]
 
 
 def validate_config():

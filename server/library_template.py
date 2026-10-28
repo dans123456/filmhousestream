@@ -104,7 +104,7 @@ LIBRARY_HTML = """<!DOCTYPE html>
       top: 50%;
       transform: translateY(-50%);
       color: #94a3b8;
-      font-size: 16px;
+      font-size: 1rem;
     }
     .filter-tabs {
       display: flex;
@@ -116,11 +116,11 @@ LIBRARY_HTML = """<!DOCTYPE html>
     .tab {
       padding: 6px 14px;
       border-radius: 8px;
-      font-size: 0.82rem;
+      font-size: 0.8rem;
       font-weight: 600;
-      background: #141724;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
       color: #94a3b8;
-      border: 1px solid rgba(255, 255, 255, 0.06);
       cursor: pointer;
       white-space: nowrap;
       transition: all 0.2s;
@@ -131,20 +131,19 @@ LIBRARY_HTML = """<!DOCTYPE html>
       border-color: #6366f1;
     }
     .media-grid {
-      display: flex;
-      flex-direction: column;
+      display: grid;
+      grid-template-columns: 1fr;
       gap: 12px;
     }
     .media-card {
-      background: rgba(18, 20, 29, 0.7);
-      backdrop-filter: blur(12px);
+      background: rgba(18, 20, 29, 0.9);
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 14px;
       padding: 14px 16px;
       display: flex;
       flex-direction: column;
-      gap: 10px;
-      transition: transform 0.15s ease, border-color 0.15s ease;
+      gap: 8px;
+      transition: all 0.2s ease;
     }
     .media-card:hover {
       border-color: rgba(99, 102, 241, 0.4);
@@ -243,6 +242,84 @@ LIBRARY_HTML = """<!DOCTYPE html>
       z-index: 100;
       display: none;
     }
+    .auth-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(9, 10, 15, 0.95);
+      backdrop-filter: blur(14px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 20px;
+    }
+    .auth-card {
+      background: #141724;
+      border: 1px solid rgba(255, 188, 0, 0.35);
+      border-radius: 18px;
+      padding: 32px 24px;
+      max-width: 380px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 12px 50px rgba(0, 0, 0, 0.8);
+    }
+    .auth-icon {
+      font-size: 2.2rem;
+      margin-bottom: 12px;
+    }
+    .auth-card h2 {
+      font-size: 1.25rem;
+      color: #fff;
+      margin-bottom: 6px;
+    }
+    .auth-card p {
+      font-size: 0.82rem;
+      color: #94a3b8;
+      margin-bottom: 20px;
+      line-height: 1.4;
+    }
+    .auth-input {
+      width: 100%;
+      padding: 12px 14px;
+      background: #090a0f;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 10px;
+      color: #fff;
+      font-size: 0.92rem;
+      text-align: center;
+      letter-spacing: 1px;
+      margin-bottom: 14px;
+      outline: none;
+    }
+    .auth-input:focus {
+      border-color: #ffbc00;
+      box-shadow: 0 0 12px rgba(255, 188, 0, 0.3);
+    }
+    .auth-btn {
+      width: 100%;
+      padding: 12px;
+      background: linear-gradient(135deg, #ffd700, #ff8c00);
+      color: #000;
+      border: none;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 0.92rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .auth-btn:hover {
+      opacity: 0.92;
+      transform: translateY(-1px);
+    }
+    .auth-error {
+      color: #ef4444;
+      font-size: 0.78rem;
+      margin-top: 10px;
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -276,6 +353,18 @@ LIBRARY_HTML = """<!DOCTYPE html>
 
   <div id="copyToast" class="toast">✅ Stream URL copied to clipboard!</div>
 
+  <!-- Admin Verification Modal -->
+  <div id="authModal" class="auth-overlay">
+    <div class="auth-card">
+      <div class="auth-icon">🔐</div>
+      <h2>Admin Access Required</h2>
+      <p>This library contains private streaming keys. Please enter your Admin Passcode to unlock:</p>
+      <input type="password" id="adminKeyInput" class="auth-input" placeholder="Admin Passcode..." onkeydown="if(event.key==='Enter') submitAuth()">
+      <button onclick="submitAuth()" class="auth-btn">Unlock Library</button>
+      <div id="authError" class="auth-error">❌ Unauthorized or invalid passcode.</div>
+    </div>
+  </div>
+
   <script>
     // Initialize Telegram WebApp API if inside Telegram
     if (window.Telegram && window.Telegram.WebApp) {
@@ -301,15 +390,81 @@ LIBRARY_HTML = """<!DOCTYPE html>
       });
     }
 
+    function showAuthModal() {
+      document.getElementById('authModal').style.display = 'flex';
+      document.getElementById('adminKeyInput').focus();
+    }
+
+    function hideAuthModal() {
+      document.getElementById('authModal').style.display = 'none';
+    }
+
+    function getAuthHeaders() {
+      const headers = { 'Content-Type': 'application/json' };
+      const tgInit = window.Telegram?.WebApp?.initData;
+      if (tgInit) {
+        headers['X-Telegram-Init-Data'] = tgInit;
+      }
+      const urlKey = new URLSearchParams(window.location.search).get('admin_key');
+      const storedKey = sessionStorage.getItem('filmhouse_admin_key') || urlKey;
+      if (storedKey) {
+        headers['X-Admin-Key'] = storedKey;
+      }
+      return headers;
+    }
+
     async function loadMedia() {
       try {
-        const res = await fetch('/api/media');
+        const res = await fetch('/api/media', {
+          headers: getAuthHeaders()
+        });
+
+        if (res.status === 401 || res.status === 403) {
+          showAuthModal();
+          return;
+        }
+
         const data = await res.json();
+        if (!data.success) {
+          showAuthModal();
+          return;
+        }
+
+        hideAuthModal();
         allMedia = data.items || [];
         document.getElementById('statsBadge').textContent = `${allMedia.length} Titles`;
         renderMedia();
       } catch (e) {
-        document.getElementById('mediaGrid').innerHTML = '<div class="empty-state">Failed to load media.</div>';
+        document.getElementById('mediaGrid').innerHTML = '<div class="empty-state">Failed to load media: ' + e.message + '</div>';
+      }
+    }
+
+    async function submitAuth() {
+      const input = document.getElementById('adminKeyInput');
+      const key = input.value.trim();
+      const err = document.getElementById('authError');
+      if (!key) return;
+
+      sessionStorage.setItem('filmhouse_admin_key', key);
+      try {
+        const res = await fetch('/api/media', {
+          headers: getAuthHeaders()
+        });
+
+        if (res.ok) {
+          err.style.display = 'none';
+          hideAuthModal();
+          const data = await res.json();
+          allMedia = data.items || [];
+          document.getElementById('statsBadge').textContent = `${allMedia.length} Titles`;
+          renderMedia();
+        } else {
+          err.textContent = '❌ Incorrect Admin Passcode or Unauthorized Account.';
+          err.style.display = 'block';
+        }
+      } catch (e) {
+        err.textContent = '❌ Connection failed.';
+        err.style.display = 'block';
       }
     }
 
@@ -318,7 +473,7 @@ LIBRARY_HTML = """<!DOCTYPE html>
       try {
         const res = await fetch('/api/media/delete', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders(),
           body: JSON.stringify({ message_id: messageId })
         });
         const result = await res.json();
@@ -385,6 +540,7 @@ LIBRARY_HTML = """<!DOCTYPE html>
 
     document.getElementById('searchInput').addEventListener('input', renderMedia);
 
+    // Initial load
     loadMedia();
   </script>
 </body>

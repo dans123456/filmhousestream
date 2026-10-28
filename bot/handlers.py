@@ -16,9 +16,10 @@ _batch_buffers: dict[int, dict] = {}
 
 
 def is_authorized(user_id: int) -> bool:
-    """Verifies whether the user is permitted to use the bot."""
+    """Verifies whether the user is an authorized FilmHouse administrator."""
     if not config.ADMIN_IDS:
-        return True
+        logger.error(f"SECURITY CRITICAL: ADMIN_IDS is empty! Rejecting access for user {user_id}")
+        return False
     return user_id in config.ADMIN_IDS
 
 
@@ -198,7 +199,8 @@ def register_handlers(app: Client):
     @app.on_message(filters.command(["start", "menu"]) & filters.private)
     async def start_handler(client: Client, message: Message):
         if not is_authorized(message.from_user.id):
-            await message.reply_text("⛔ You are not authorized to use this bot.")
+            logger.warning(f"SECURITY: Unauthorized /start by user {message.from_user.id} (@{message.from_user.username or 'none'})")
+            await message.reply_text("⛔ **Access Denied.**\nThis streaming bot is strictly restricted to FilmHouse Administrators.")
             return
 
         welcome_text = (
@@ -213,6 +215,8 @@ def register_handlers(app: Client):
 
     @app.on_message(filters.command("help") & filters.private)
     async def help_command_handler(client: Client, message: Message):
+        if not is_authorized(message.from_user.id):
+            return
         help_text = (
             "ℹ️ **How to Use FilmHouse Stream Bot:**\n\n"
             "1. **For Movies:** Forward 1 movie file $\\rightarrow$ receive direct stream link $\\rightarrow$ paste into FilmHouse Admin.\n\n"
@@ -226,6 +230,8 @@ def register_handlers(app: Client):
 
     @app.on_message(filters.command("status") & filters.private)
     async def status_command_handler(client: Client, message: Message):
+        if not is_authorized(message.from_user.id):
+            return
         tracked = get_tracked_files()
         status_text = (
             "⚙️ **System & Stream Health:**\n\n"
@@ -249,10 +255,11 @@ def register_handlers(app: Client):
         """Opens the FilmHouse Media Library Mini App."""
         if not is_authorized(message.from_user.id):
             return
-        web_url = f"{config.SERVER_URL}/library"
+        web_app_url = f"{config.SERVER_URL}/library"
+        browser_url = f"{config.SERVER_URL}/library?admin_key={config.ADMIN_SECRET}"
         buttons = [
-            [InlineKeyboardButton("📱 Open Media Library (WebApp)", web_app=WebAppInfo(url=web_url))],
-            [InlineKeyboardButton("🌐 Open in Web Browser", url=web_url)],
+            [InlineKeyboardButton("📱 Open Media Library (WebApp)", web_app=WebAppInfo(url=web_app_url))],
+            [InlineKeyboardButton("🌐 Open in Web Browser", url=browser_url)],
         ]
         await message.reply_text(
             "📚 **FilmHouse Media Library**\n\n"
@@ -266,11 +273,17 @@ def register_handlers(app: Client):
 
     @app.on_callback_query(filters.regex("status_check"))
     async def status_callback(client: Client, query: CallbackQuery):
+        if not is_authorized(query.from_user.id):
+            await query.answer("⛔ Access Denied: Admin authorization required.", show_alert=True)
+            return
         tracked = get_tracked_files()
         await query.answer(f"⚡ Streaming Engine Online! {len(tracked)} files indexed.", show_alert=True)
 
     @app.on_callback_query(filters.regex("menu_main"))
     async def menu_main_callback(client: Client, query: CallbackQuery):
+        if not is_authorized(query.from_user.id):
+            await query.answer("⛔ Access Denied: Admin authorization required.", show_alert=True)
+            return
         welcome_text = (
             "🎬 **FilmHouse Stream Engine Dashboard**\n\n"
             "Forward any **Movie** or **TV Series batch** here to instantly generate:\n"
@@ -282,6 +295,9 @@ def register_handlers(app: Client):
 
     @app.on_callback_query(filters.regex("help_menu"))
     async def help_menu_callback(client: Client, query: CallbackQuery):
+        if not is_authorized(query.from_user.id):
+            await query.answer("⛔ Access Denied: Admin authorization required.", show_alert=True)
+            return
         help_text = (
             "ℹ️ **How to Use FilmHouse Stream Bot:**\n\n"
             "1. **Movies:** Forward any single movie file $\\rightarrow$ receive direct stream link $\\rightarrow$ paste into FilmHouse Admin.\n\n"
@@ -296,11 +312,17 @@ def register_handlers(app: Client):
 
     @app.on_callback_query(filters.regex("bin_manage"))
     async def bin_manage_callback(client: Client, query: CallbackQuery):
+        if not is_authorized(query.from_user.id):
+            await query.answer("⛔ Access Denied: Admin authorization required.", show_alert=True)
+            return
         await send_bin_manager_menu(query.message, edit=True)
 
     @app.on_callback_query(filters.regex("bin_del_recent"))
     async def bin_del_recent_callback(client: Client, query: CallbackQuery):
         """Deletes the last 25 test uploads."""
+        if not is_authorized(query.from_user.id):
+            await query.answer("⛔ Access Denied: Admin authorization required.", show_alert=True)
+            return
         tracked = get_tracked_files(limit=25)
         if not tracked:
             await query.answer("No tracked files found to delete.", show_alert=True)
@@ -318,6 +340,9 @@ def register_handlers(app: Client):
     @app.on_callback_query(filters.regex("bin_del_all_confirm"))
     async def bin_del_all_confirm_callback(client: Client, query: CallbackQuery):
         """Shows danger confirmation before deleting all files."""
+        if not is_authorized(query.from_user.id):
+            await query.answer("⛔ Access Denied: Admin authorization required.", show_alert=True)
+            return
         tracked = get_tracked_files()
         confirm_text = (
             "🚨 **CRITICAL WARNING — PERMANENT DELETION** 🚨\n\n"
@@ -334,6 +359,9 @@ def register_handlers(app: Client):
     @app.on_callback_query(filters.regex("bin_del_all_exec"))
     async def bin_del_all_exec_callback(client: Client, query: CallbackQuery):
         """Executes deletion of all tracked files in batches."""
+        if not is_authorized(query.from_user.id):
+            await query.answer("⛔ Access Denied: Admin authorization required.", show_alert=True)
+            return
         tracked = get_tracked_files()
         if not tracked:
             await query.answer("Storage is already empty.", show_alert=True)
@@ -360,6 +388,9 @@ def register_handlers(app: Client):
     @app.on_callback_query(filters.regex("bin_manual_help"))
     async def bin_manual_help_callback(client: Client, query: CallbackQuery):
         """Explains how to manually clear files in Telegram channel."""
+        if not is_authorized(query.from_user.id):
+            await query.answer("⛔ Access Denied: Admin authorization required.", show_alert=True)
+            return
         info_text = (
             "📱 **How to Clear Directly in Telegram Channel:**\n\n"
             "If you want to clear older test files that were uploaded before the bot started tracking:\n\n"
@@ -380,7 +411,8 @@ def register_handlers(app: Client):
     async def media_handler(client: Client, message: Message):
         user_id = message.from_user.id
         if not is_authorized(user_id):
-            await message.reply_text("⛔ You are not authorized to use this bot.")
+            logger.warning(f"SECURITY: Unauthorized media upload attempt from user_id {user_id} (@{message.from_user.username or 'none'})")
+            await message.reply_text("⛔ **Access Denied.**\nThis streaming bot is strictly restricted to FilmHouse Administrators.")
             return
 
         media = message.video or message.document

@@ -3,10 +3,13 @@ import math
 import logging
 from aiohttp import web
 from bot.client import get_tg_client, get_media_info
-from server.security import verify_stream_token, is_origin_allowed
-from server.parser import parse_filename
-from server.cache import get_cached_chunk, store_cached_chunk, get_cache_stats
-from server.security import generate_stream_token
+from server.security import (
+    verify_stream_token,
+    is_origin_allowed,
+    generate_stream_token,
+    verify_admin_access,
+    check_rate_limit,
+)
 from bot.storage import get_tracked_files, remove_tracked_files
 from server.library_template import LIBRARY_HTML
 import urllib.parse
@@ -588,8 +591,39 @@ async def handle_library(request: web.Request) -> web.Response:
     )
 
 
+async def handle_cors_options(request: web.Request) -> web.Response:
+    """Handles CORS preflight requests for API endpoints."""
+    return web.Response(
+        status=204,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
+        }
+    )
+
+
 async def handle_api_media(request: web.Request) -> web.Response:
-    """Returns JSON array of all tracked media items."""
+    """Returns JSON array of all tracked media items (ADMIN ONLY)."""
+    # 1. Rate limiting & anti-abuse
+    if not check_rate_limit(request, max_requests=60, window_sec=60):
+        return web.json_response(
+            {"success": False, "error": "Rate limit exceeded. Please wait a moment."},
+            status=429,
+            headers={"Access-Control-Allow-Origin": "*"}
+        )
+
+    # 2. Strict Admin Verification
+    if not verify_admin_access(request):
+        return web.json_response(
+            {"success": False, "error": "Unauthorized: FilmHouse Admin authorization required."},
+            status=401,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
+            }
+        )
+
     records = get_tracked_files()
     items = []
     for r in records:
@@ -617,18 +651,41 @@ async def handle_api_media(request: web.Request) -> web.Response:
         })
 
     return web.json_response({
+        "success": True,
         "total": len(items),
         "items": items,
-    }, headers={"Access-Control-Allow-Origin": "*"})
+    }, headers={
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
+    })
 
 
 async def handle_api_delete(request: web.Request) -> web.Response:
-    """Deletes an item from the bin channel and local ledger."""
+    """Deletes an item from the bin channel and local ledger (ADMIN ONLY)."""
+    # 1. Rate limiting & anti-abuse
+    if not check_rate_limit(request, max_requests=30, window_sec=60):
+        return web.json_response(
+            {"success": False, "error": "Rate limit exceeded. Please wait a moment."},
+            status=429,
+            headers={"Access-Control-Allow-Origin": "*"}
+        )
+
+    # 2. Strict Admin Verification
+    if not verify_admin_access(request):
+        return web.json_response(
+            {"success": False, "error": "Unauthorized: FilmHouse Admin authorization required."},
+            status=401,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
+            }
+        )
+
     try:
         data = await request.json()
         mid = data.get("message_id")
         if not mid:
-            return web.json_response({"success": False, "error": "Missing message_id"}, status=400)
+            return web.json_response({"success": False, "error": "Missing message_id"}, status=400, headers={"Access-Control-Allow-Origin": "*"})
 
         client = get_tg_client()
         await client.delete_messages(config.BIN_CHANNEL_ID, [int(mid)])
@@ -644,8 +701,13 @@ def create_stream_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_home)
     app.router.add_get("/library", handle_library)
+    
+    # Protected Admin API routes
     app.router.add_get("/api/media", handle_api_media)
+    app.router.add_route("OPTIONS", "/api/media", handle_cors_options)
     app.router.add_post("/api/media/delete", handle_api_delete)
+    app.router.add_route("OPTIONS", "/api/media/delete", handle_cors_options)
+    
     app.router.add_get("/watch/{token}", handle_watch)
     
     # In aiohttp, add_get automatically registers both GET and HEAD!
