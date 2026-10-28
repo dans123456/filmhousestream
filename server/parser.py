@@ -56,7 +56,11 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
 
     # 1. Detect Quality
     quality_match = QUALITY_PATTERN.search(working_name)
-    quality = quality_match.group(1).upper() if quality_match else None
+    if quality_match:
+        matched_str = quality_match.group(1)
+        quality = "4K" if matched_str.upper() in ("4K", "2160P") else matched_str.lower()
+    else:
+        quality = None
 
     # 2. Detect Season & Episode
     season = None

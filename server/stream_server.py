@@ -407,6 +407,54 @@ async def handle_watch(request: web.Request) -> web.Response:
     )
 
 
+def parse_range_header(range_header: str | None, file_size: int) -> tuple[int, int] | None:
+    """
+    Parses HTTP Range header according to RFC 7233.
+    Returns (start, end) tuple or None if range is invalid/unsatisfiable.
+    """
+    if not range_header or file_size <= 0:
+        return (0, max(0, file_size - 1))
+
+    if not range_header.startswith("bytes="):
+        return None
+
+    range_spec = range_header[6:].strip()
+    if "," in range_spec:
+        # We only support single ranges for media streaming
+        range_spec = range_spec.split(",")[0].strip()
+
+    if range_spec.startswith("-"):
+        # Suffix range: bytes=-500 (last 500 bytes)
+        try:
+            suffix_len = int(range_spec[1:])
+            if suffix_len <= 0:
+                return None
+            start = max(0, file_size - suffix_len)
+            end = file_size - 1
+            return (start, end)
+        except ValueError:
+            return None
+
+    parts = range_spec.split("-", 1)
+    if len(parts) != 2:
+        return None
+
+    try:
+        start = int(parts[0])
+        if parts[1].strip():
+            end = int(parts[1])
+        else:
+            end = file_size - 1
+
+        if start > end or start >= file_size or start < 0:
+            return None
+
+        end = min(end, file_size - 1)
+        return (start, end)
+    except ValueError:
+        return None
+
+
 async def handle_stream(request: web.Request) -> web.StreamResponse:
     """
     Core HTTP 206 Partial Content video streaming handler.
@@ -479,18 +527,9 @@ async def handle_stream(request: web.Request) -> web.StreamResponse:
 
     # 4. Parse Range Header: bytes=start-end (including Safari bytes=0-1 test)
     range_header = request.headers.get("Range")
-    start = 0
-    end = file_size - 1
+    range_parsed = parse_range_header(range_header, file_size)
 
-    if range_header:
-        range_match = re.match(r"bytes=(\d+)-(\d*)", range_header)
-        if range_match:
-            start_str, end_str = range_match.groups()
-            start = int(start_str) if start_str else 0
-            if end_str:
-                end = int(end_str)
-
-    if start > end or start >= file_size:
+    if range_header and range_parsed is None:
         return web.Response(
             status=416,
             headers={
@@ -499,7 +538,7 @@ async def handle_stream(request: web.Request) -> web.StreamResponse:
             }
         )
 
-    end = min(end, file_size - 1)
+    start, end = range_parsed if range_parsed else (0, file_size - 1)
     content_length = (end - start) + 1
 
     # Prepare response headers for HTTP 206
