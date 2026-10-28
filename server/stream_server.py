@@ -147,12 +147,51 @@ PLAYER_HTML_TEMPLATE = """<!DOCTYPE html>
       color: #fff;
       border-color: #6366f1;
       box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
-    }}
+    .toast-resume {
+      position: absolute;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(18, 20, 29, 0.95);
+      backdrop-filter: blur(16px);
+      padding: 12px 20px;
+      border-radius: 12px;
+      border: 1px solid rgba(99, 102, 241, 0.4);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+      z-index: 20;
+      display: none;
+      align-items: center;
+      gap: 12px;
+      font-size: 0.88rem;
+      animation: fadeIn 0.3s ease;
+    }
+    .adblock-banner {
+      background: linear-gradient(90deg, rgba(239, 68, 68, 0.15), rgba(249, 115, 22, 0.15));
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 10px;
+      padding: 10px 16px;
+      margin-bottom: 16px;
+      font-size: 0.85rem;
+      color: #fca5a5;
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translate(-50%, 10px); }
+      to { opacity: 1; transform: translate(-50%, 0); }
+    }
   </style>
 </head>
 <body>
   <div class="glow-bg"></div>
   <div class="container">
+    <!-- AdBlock Detection Banner -->
+    <div id="adblockBanner" class="adblock-banner">
+      <span>🛡️ <b>AdBlocker Detected:</b> Please consider pausing your AdBlocker on FilmHouse to support free 1080p high-speed streaming!</span>
+      <button onclick="document.getElementById('adblockBanner').style.display='none'" style="background:none;border:none;color:#fca5a5;cursor:pointer;font-size:16px;">✖</button>
+    </div>
+
     <div class="header">
       <div class="brand">
         <div class="logo">F</div>
@@ -160,12 +199,24 @@ PLAYER_HTML_TEMPLATE = """<!DOCTYPE html>
           <h1>{clean_name} <span class="badge">{quality}</span></h1>
         </div>
       </div>
-      <div>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <!-- Subtitle Loader Button -->
+        <label for="subFileInput" class="btn" style="cursor: pointer;" title="Load local subtitle file">
+          💬 Subtitles (.srt/.vtt)
+          <input type="file" id="subFileInput" accept=".srt,.vtt" style="display: none;" />
+        </label>
         <a href="{stream_url}" download="{file_name}" class="btn">⬇️ Download File</a>
       </div>
     </div>
 
     <div class="player-wrapper">
+      <!-- Resume Playback Toast -->
+      <div id="resumeToast" class="toast-resume">
+        <span>⏱️ Resume from <b id="resumeTimeText" style="color: #818cf8;">00:00</b>?</span>
+        <button id="btnResume" class="btn" style="background: #6366f1; padding: 4px 10px; font-size: 0.78rem;">▶ Resume</button>
+        <button id="btnDismissResume" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;padding:2px 6px;">✖</button>
+      </div>
+
       <video id="player" playsinline controls preload="metadata">
         <source src="{stream_url}" type="{mime_type}">
         Your browser does not support the video tag.
@@ -178,17 +229,104 @@ PLAYER_HTML_TEMPLATE = """<!DOCTYPE html>
     </div>
   </div>
 
+  <!-- AdBlock Bait Element -->
+  <div class="adsbox ad-placement pub_300x250 pub_728x90" id="adBait" style="position:absolute;left:-9999px;width:1px;height:1px;">&nbsp;</div>
+
   <script src="https://cdn.plyr.io/3.7.8/plyr.polyfilled.js"></script>
   <script>
-    const player = new Plyr('#player', {{
+    const videoToken = "{token}";
+    const playerEl = document.getElementById('player');
+    const player = new Plyr(playerEl, {{
       controls: [
         'play-large', 'restart', 'play', 'progress', 'current-time',
         'duration', 'mute', 'volume', 'captions', 'settings',
         'pip', 'airplay', 'fullscreen'
       ],
+      captions: {{ active: true, update: true }},
       seekTime: 10,
       keyboard: {{ focused: true, global: true }},
       tooltips: {{ controls: true, seek: true }}
+    }});
+
+    // 1. Resume Playback Progress Logic
+    const resumeKey = 'filmhouse_prog_' + videoToken;
+    const resumeToast = document.getElementById('resumeToast');
+    const resumeText = document.getElementById('resumeTimeText');
+    const btnResume = document.getElementById('btnResume');
+    const btnDismiss = document.getElementById('btnDismissResume');
+
+    function formatTime(secs) {{
+      const m = Math.floor(secs / 60);
+      const s = Math.floor(secs % 60);
+      return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+    }}
+
+    player.on('loadedmetadata', () => {{
+      const savedTime = parseFloat(localStorage.getItem(resumeKey) || '0');
+      if (savedTime > 15 && player.duration && (player.duration - savedTime) > 30) {{
+        resumeText.textContent = formatTime(savedTime);
+        resumeToast.style.display = 'flex';
+
+        btnResume.onclick = () => {{
+          player.currentTime = savedTime;
+          player.play();
+          resumeToast.style.display = 'none';
+        }};
+        btnDismiss.onclick = () => {{
+          resumeToast.style.display = 'none';
+        }};
+        // Auto-hide after 8 seconds
+        setTimeout(() => {{ resumeToast.style.display = 'none'; }}, 8000);
+      }}
+    }});
+
+    // Save playback position every 4 seconds
+    player.on('timeupdate', () => {{
+      if (player.currentTime > 5 && player.duration && (player.duration - player.currentTime) > 15) {{
+        localStorage.setItem(resumeKey, player.currentTime);
+      }}
+    }});
+
+    // 2. Subtitle File Loader (.srt / .vtt)
+    const subInput = document.getElementById('subFileInput');
+    subInput.addEventListener('change', function(e) {{
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(evt) {{
+        let content = evt.target.result;
+        // Convert SRT to WebVTT if needed
+        if (file.name.endsWith('.srt')) {{
+          content = "WEBVTT\\n\\n" + content
+            .replace(/(\\d{{2}}:\\d{{2}}:\\d{{2}}),(\\d{{3}})/g, "$1.$2");
+        }}
+        const blob = new Blob([content], {{ type: 'text/vtt' }});
+        const trackUrl = URL.createObjectURL(blob);
+
+        // Add track element
+        const track = document.createElement('track');
+        track.kind = 'subtitles';
+        track.label = file.name.replace(/\\.[^/.]+$/, "");
+        track.srclang = 'en';
+        track.src = trackUrl;
+        track.default = true;
+
+        playerEl.appendChild(track);
+        player.currentTrack = playerEl.textTracks.length - 1;
+        alert("✅ Subtitles loaded: " + file.name);
+      }};
+      reader.readAsText(file);
+    }});
+
+    // 3. AdBlocker Detection
+    window.addEventListener('load', () => {{
+      setTimeout(() => {{
+        const bait = document.getElementById('adBait');
+        if (!bait || bait.offsetHeight === 0 || bait.clientHeight === 0) {{
+          document.getElementById('adblockBanner').style.display = 'flex';
+        }}
+      }}, 1000);
     }});
   </script>
 </body>
@@ -247,6 +385,7 @@ async def handle_watch(request: web.Request) -> web.Response:
         file_size_formatted=format_bytes(file_size),
         stream_url=stream_url,
         mime_type=mime_type,
+        token=token,
     )
 
     return web.Response(
