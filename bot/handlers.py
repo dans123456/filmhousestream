@@ -2,10 +2,11 @@ import asyncio
 import logging
 import urllib.parse
 from hydrogram import Client, filters
-from hydrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from hydrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from server.security import generate_stream_token
 from server.parser import parse_filename
 from server.stream_server import format_bytes
+from bot.storage import record_indexed_file, get_tracked_files, remove_tracked_files
 import config
 
 logger = logging.getLogger("filmhouse.bot")
@@ -28,10 +29,22 @@ def build_blogspot_url(stream_url: str, title: str) -> str:
     return f"{config.BLOGGER_URL}/?watch={encoded_stream}&title={encoded_title}"
 
 
+def get_main_menu_keyboard() -> InlineKeyboardMarkup:
+    """Constructs the interactive main dashboard buttons."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🍿 FilmHouse Blogspot", url=config.BLOGGER_URL)],
+        [
+            InlineKeyboardButton("⚙️ Server Status", callback_data="status_check"),
+            InlineKeyboardButton("ℹ️ How to Use", callback_data="help_menu"),
+        ],
+        [InlineKeyboardButton("🧹 Manage Bin Storage (Delete)", callback_data="bin_manage")],
+    ])
+
+
 async def flush_batch(client: Client, user_id: int):
     """
     Called after debounce delay to sort episodes numerically, forward them in order
-    into the Bin Channel, and output a clean, verifiable list with episode titles.
+    into the Bin Channel, record them, and output a clean, verifiable list with episode titles.
     """
     buffer_data = _batch_buffers.pop(user_id, None)
     if not buffer_data:
@@ -53,6 +66,7 @@ async def flush_batch(client: Client, user_id: int):
 
         try:
             forwarded = await msg.forward(config.BIN_CHANNEL_ID)
+            record_indexed_file(forwarded.id, file_name)
             token = generate_stream_token(forwarded.id)
             stream_url = f"{config.SERVER_URL}/dl/{token}"
             blogger_url = build_blogspot_url(stream_url, parsed["title"])
@@ -94,7 +108,6 @@ async def flush_batch(client: Client, user_id: int):
         return
 
     # Case 2: Multiple files forwarded (Series Batch)
-    # Group by (Show Title, Season)
     groups: dict[tuple, list] = {}
     for item in items:
         p = item["parsed"]
@@ -104,11 +117,10 @@ async def flush_batch(client: Client, user_id: int):
         groups[key].append(item)
 
     for (show_title, season), ep_items in groups.items():
-        # 1. SORT STRICTLY BY EPISODE NUMBER (Ep 1 -> Ep 22)
+        # 1. SORT STRICTLY BY EPISODE NUMBER (Ep 1 -> Ep 100)
         ep_items.sort(key=lambda x: (x["parsed"]["episode"] or 0, x["file_name"]))
         total_eps = len(ep_items)
 
-        # 2. FORWARD INTO BIN CHANNEL IN STRICT NUMERICAL ORDER
         try:
             await status_msg.edit_text(f"⏳ *Forwarding {total_eps} episodes in strict numerical order to storage channel...*")
         except Exception:
@@ -120,6 +132,7 @@ async def flush_batch(client: Client, user_id: int):
             try:
                 # Forward to bin channel in sequence
                 forwarded = await raw_msg.forward(config.BIN_CHANNEL_ID)
+                record_indexed_file(forwarded.id, ep_item["file_name"])
                 token = generate_stream_token(forwarded.id)
                 stream_url = f"{config.SERVER_URL}/dl/{token}"
 
@@ -172,53 +185,170 @@ async def flush_batch(client: Client, user_id: int):
 def register_handlers(app: Client):
     """Registers all Telegram bot command and message handlers."""
 
-    @app.on_message(filters.command(["start", "help"]) & filters.private)
+    @app.on_message(filters.command(["start", "menu"]) & filters.private)
     async def start_handler(client: Client, message: Message):
         if not is_authorized(message.from_user.id):
             await message.reply_text("⛔ You are not authorized to use this bot.")
             return
 
         welcome_text = (
-            "🎬 **Welcome to FilmHouse Stream Bot!**\n\n"
-            "Forward any **Movie** or **TV Series batch** here, and I will:\n"
-            "• ⚡ Sort episodes in strict numerical order (Ep 1 $\\rightarrow$ Ep 100)\n"
-            "• 📁 Back up into your Bin Channel in clean sequence\n"
-            "• 📺 Extract each Episode Title so you can verify before adding to FilmHouse\n\n"
-            "Forward your video files to get started!"
+            "🎬 **FilmHouse Stream Engine Dashboard**\n\n"
+            "Forward any **Movie** or **TV Series batch** here to instantly generate:\n"
+            "• ⚡ High-Speed HTTP 206 Direct Stream URLs\n"
+            "• 📁 Ordered Backup in your Private Bin Channel\n"
+            "• 📺 Smart Episode Title Extraction & Numerical Sorting\n\n"
+            "Select an option below or forward video files directly:"
         )
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🍿 FilmHouse Blogspot", url=config.BLOGGER_URL)],
-            [InlineKeyboardButton("⚙️ Server Status", callback_data="status_check")]
-        ])
-        await message.reply_text(welcome_text, reply_markup=keyboard)
+        await message.reply_text(welcome_text, reply_markup=get_main_menu_keyboard())
 
-    @app.on_callback_query(filters.regex("status_check"))
-    async def status_callback(client: Client, query):
-        await query.answer("⚡ Streaming server is active and online!", show_alert=True)
+    @app.on_message(filters.command("help") & filters.private)
+    async def help_command_handler(client: Client, message: Message):
+        help_text = (
+            "ℹ️ **How to Use FilmHouse Stream Bot:**\n\n"
+            "1. **For Movies:** Forward 1 movie file $\\rightarrow$ receive direct stream link $\\rightarrow$ paste into FilmHouse Admin.\n\n"
+            "2. **For TV Series:** Select multiple episodes (e.g. 10 to 50 files) and forward all at once. The bot will:\n"
+            "   - Buffer all incoming episodes.\n"
+            "   - Sort them strictly Ep 1 $\\rightarrow$ Ep 100.\n"
+            "   - Forward into your Bin Channel in exact sequence.\n"
+            "   - Send you an organized list with Episode Titles ready to copy."
+        )
+        await message.reply_text(help_text, reply_markup=get_main_menu_keyboard())
+
+    @app.on_message(filters.command("status") & filters.private)
+    async def status_command_handler(client: Client, message: Message):
+        tracked = get_tracked_files()
+        status_text = (
+            "⚙️ **System & Stream Health:**\n\n"
+            f"• **Streaming Server:** 🟢 Online (Port {config.PORT})\n"
+            f"• **Public URL:** `{config.SERVER_URL}`\n"
+            f"• **Bin Channel:** `{config.BIN_CHANNEL_ID}`\n"
+            f"• **Tracked Video Files:** {len(tracked)} items\n"
+            f"• **MTProto Crypto:** ⚡ High-Speed C-Accelerated (`tgcrypto`)"
+        )
+        await message.reply_text(status_text, reply_markup=get_main_menu_keyboard())
 
     @app.on_message(filters.command("clear_bin") & filters.private)
-    async def clear_bin_handler(client: Client, message: Message):
-        """Allows an admin to clean out old test messages from the bin channel."""
+    async def clear_bin_command_handler(client: Client, message: Message):
+        """Triggers the interactive Bin Storage Manager."""
         if not is_authorized(message.from_user.id):
             return
-        
-        status = await message.reply_text("🧹 *Cleaning out old test files from storage channel...*")
-        count = 0
+        await send_bin_manager_menu(message)
+
+    # ==========================================
+    # Interactive Callback Handlers
+    # ==========================================
+
+    @app.on_callback_query(filters.regex("status_check"))
+    async def status_callback(client: Client, query: CallbackQuery):
+        tracked = get_tracked_files()
+        await query.answer(f"⚡ Streaming Engine Online! {len(tracked)} files indexed.", show_alert=True)
+
+    @app.on_callback_query(filters.regex("menu_main"))
+    async def menu_main_callback(client: Client, query: CallbackQuery):
+        welcome_text = (
+            "🎬 **FilmHouse Stream Engine Dashboard**\n\n"
+            "Forward any **Movie** or **TV Series batch** here to instantly generate:\n"
+            "• ⚡ High-Speed HTTP 206 Direct Stream URLs\n"
+            "• 📁 Ordered Backup in your Private Bin Channel\n"
+            "• 📺 Smart Episode Title Extraction & Numerical Sorting"
+        )
+        await query.message.edit_text(welcome_text, reply_markup=get_main_menu_keyboard())
+
+    @app.on_callback_query(filters.regex("help_menu"))
+    async def help_menu_callback(client: Client, query: CallbackQuery):
+        help_text = (
+            "ℹ️ **How to Use FilmHouse Stream Bot:**\n\n"
+            "1. **Movies:** Forward any single movie file $\\rightarrow$ receive direct stream link $\\rightarrow$ paste into FilmHouse Admin.\n\n"
+            "2. **TV Series:** Select multiple episodes (e.g. 10 to 50 files) and forward all at once. The bot will:\n"
+            "   - Buffer all incoming episodes.\n"
+            "   - Sort them strictly Ep 1 $\\rightarrow$ Ep 100.\n"
+            "   - Forward into your Bin Channel in exact sequence.\n"
+            "   - Send you an organized list with Episode Titles ready to copy."
+        )
+        buttons = [[InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main")]]
+        await query.message.edit_text(help_text, reply_markup=InlineKeyboardMarkup(buttons))
+
+    @app.on_callback_query(filters.regex("bin_manage"))
+    async def bin_manage_callback(client: Client, query: CallbackQuery):
+        await send_bin_manager_menu(query.message, edit=True)
+
+    @app.on_callback_query(filters.regex("bin_del_recent"))
+    async def bin_del_recent_callback(client: Client, query: CallbackQuery):
+        """Deletes the last 25 test uploads."""
+        tracked = get_tracked_files(limit=25)
+        if not tracked:
+            await query.answer("No tracked files found to delete.", show_alert=True)
+            return
+
+        ids = [item["message_id"] for item in tracked]
         try:
-            # Delete messages from bin channel in batches
-            msg_ids_to_delete = []
-            async for m in client.get_chat_history(config.BIN_CHANNEL_ID, limit=100):
-                msg_ids_to_delete.append(m.id)
-                if len(msg_ids_to_delete) >= 50:
-                    await client.delete_messages(config.BIN_CHANNEL_ID, msg_ids_to_delete)
-                    count += len(msg_ids_to_delete)
-                    msg_ids_to_delete = []
-            if msg_ids_to_delete:
-                await client.delete_messages(config.BIN_CHANNEL_ID, msg_ids_to_delete)
-                count += len(msg_ids_to_delete)
-            await status.edit_text(f"✅ *Successfully deleted {count} old messages from your Bin Channel!* Your channel is fresh and clean.")
+            await client.delete_messages(config.BIN_CHANNEL_ID, ids)
+            remove_tracked_files(ids)
+            await query.answer(f"✅ Deleted {len(ids)} recent test files from storage!", show_alert=True)
+            await send_bin_manager_menu(query.message, edit=True)
         except Exception as e:
-            await status.edit_text(f"❌ Error clearing bin channel: `{e}`")
+            await query.answer(f"Error: {e}", show_alert=True)
+
+    @app.on_callback_query(filters.regex("bin_del_all_confirm"))
+    async def bin_del_all_confirm_callback(client: Client, query: CallbackQuery):
+        """Shows danger confirmation before deleting all files."""
+        tracked = get_tracked_files()
+        confirm_text = (
+            "🚨 **CRITICAL WARNING — PERMANENT DELETION** 🚨\n\n"
+            f"You are about to delete **ALL {len(tracked)} files** from your Bin Channel!\n\n"
+            "⚠️ **CONSEQUENCE:** Any movie or series episode in FilmHouse that relies on these files will **STOP STREAMING PERMANENTLY**.\n\n"
+            "Are you completely sure you want to proceed?"
+        )
+        buttons = [
+            [InlineKeyboardButton("🔴 Yes, Delete Everything", callback_data="bin_del_all_exec")],
+            [InlineKeyboardButton("🟢 Cancel & Keep Safe", callback_data="bin_manage")],
+        ]
+        await query.message.edit_text(confirm_text, reply_markup=InlineKeyboardMarkup(buttons))
+
+    @app.on_callback_query(filters.regex("bin_del_all_exec"))
+    async def bin_del_all_exec_callback(client: Client, query: CallbackQuery):
+        """Executes deletion of all tracked files in batches."""
+        tracked = get_tracked_files()
+        if not tracked:
+            await query.answer("Storage is already empty.", show_alert=True)
+            await send_bin_manager_menu(query.message, edit=True)
+            return
+
+        ids = [item["message_id"] for item in tracked]
+        deleted_count = 0
+
+        # Delete in chunks of 50 (Telegram limit per delete_messages call)
+        for i in range(0, len(ids), 50):
+            chunk = ids[i:i + 50]
+            try:
+                await client.delete_messages(config.BIN_CHANNEL_ID, chunk)
+                deleted_count += len(chunk)
+                await asyncio.sleep(0.3)
+            except Exception as e:
+                logger.error(f"Error deleting batch: {e}")
+
+        remove_tracked_files(ids)
+        await query.answer(f"🧹 Cleaned {deleted_count} files from storage channel!", show_alert=True)
+        await send_bin_manager_menu(query.message, edit=True)
+
+    @app.on_callback_query(filters.regex("bin_manual_help"))
+    async def bin_manual_help_callback(client: Client, query: CallbackQuery):
+        """Explains how to manually clear files in Telegram channel."""
+        info_text = (
+            "📱 **How to Clear Directly in Telegram Channel:**\n\n"
+            "If you want to clear older test files that were uploaded before the bot started tracking:\n\n"
+            "1. Open your **Private Bin Channel** in Telegram.\n"
+            "2. Long-press any message $\\rightarrow$ tap **Select**.\n"
+            "3. Select all the test messages you want to remove.\n"
+            "4. Tap the **Trash Can icon** (Delete) $\\rightarrow$ choose **Delete for Everyone**.\n\n"
+            "Telegram will erase them instantly without needing any bot command!"
+        )
+        buttons = [[InlineKeyboardButton("🔙 Back to Bin Manager", callback_data="bin_manage")]]
+        await query.message.edit_text(info_text, reply_markup=InlineKeyboardMarkup(buttons))
+
+    # ==========================================
+    # Media Batch Listener
+    # ==========================================
 
     @app.on_message((filters.video | filters.document) & filters.private)
     async def media_handler(client: Client, message: Message):
@@ -243,12 +373,9 @@ def register_handlers(app: Client):
             status_msg = _batch_buffers[user_id]["status_msg"]
 
         try:
-            # Extract metadata without forwarding yet
             file_name = getattr(media, "file_name", None) or f"video_{message.id}.mp4"
             file_size = getattr(media, "file_size", 0)
             file_size_str = format_bytes(file_size)
-
-            # Parse filename
             parsed = parse_filename(file_name)
 
             item_data = {
@@ -262,7 +389,6 @@ def register_handlers(app: Client):
             _batch_buffers[user_id]["items"].append(item_data)
             count = len(_batch_buffers[user_id]["items"])
 
-            # Update live counter
             if count > 1:
                 try:
                     await status_msg.edit_text(f"⏳ *Received {count} episodes... Waiting for all files in batch...*")
@@ -282,3 +408,30 @@ def register_handlers(app: Client):
         except Exception as e:
             logger.error(f"Error handling media: {e}", exc_info=True)
             await message.reply_text(f"❌ **Error indexing file:** `{str(e)}`")
+
+
+async def send_bin_manager_menu(message: Message, edit: bool = False):
+    """Renders the Bin Storage Manager with safety warnings and options."""
+    tracked = get_tracked_files()
+    count = len(tracked)
+
+    menu_text = (
+        "🧹 **Bin Channel Storage Manager**\n\n"
+        "⚠️ **SAFETY WARNING:**\n"
+        "Deleting video files from your storage channel will **permanently break** the streaming links for those files in FilmHouse.\n\n"
+        f"📊 **Tracked Video Files:** `{count} files`\n\n"
+        "Select an option below:"
+    )
+
+    buttons = [
+        [InlineKeyboardButton(f"🗑️ Delete Last 25 Test Files", callback_data="bin_del_recent")],
+        [InlineKeyboardButton("⚠️ Empty All Test Files (Danger)", callback_data="bin_del_all_confirm")],
+        [InlineKeyboardButton("📱 Clear Directly in Telegram", callback_data="bin_manual_help")],
+        [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main")],
+    ]
+    markup = InlineKeyboardMarkup(buttons)
+
+    if edit:
+        await message.edit_text(menu_text, reply_markup=markup)
+    else:
+        await message.reply_text(menu_text, reply_markup=markup)

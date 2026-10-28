@@ -32,6 +32,19 @@ async def main():
     bot_info = await bot.get_me()
     logger.info(f"Bot connected successfully as @{bot_info.username} (ID: {bot_info.id})")
 
+    # Register Telegram Bot Menu commands
+    try:
+        from hydrogram.types import BotCommand
+        await bot.set_bot_commands([
+            BotCommand("start", "Launch main dashboard"),
+            BotCommand("help", "How to forward and stream"),
+            BotCommand("status", "Server & stream health"),
+            BotCommand("clear_bin", "Storage channel maintenance"),
+        ])
+        logger.info("Registered Telegram Bot Menu commands.")
+    except Exception as e:
+        logger.warning(f"Could not register bot commands: {e}")
+
     # 3. Initialize HTTP Streaming Web Server
     app = create_stream_app()
     runner = web.AppRunner(app)
