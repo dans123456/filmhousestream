@@ -157,7 +157,8 @@ PLAYER_HTML_TEMPLATE = """<!DOCTYPE html>
       color: #fff;
       border-color: #6366f1;
       box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
-    .toast-resume {
+    }}
+    .toast-resume {{
       position: absolute;
       bottom: 80px;
       left: 50%;
@@ -174,8 +175,8 @@ PLAYER_HTML_TEMPLATE = """<!DOCTYPE html>
       gap: 12px;
       font-size: 0.88rem;
       animation: fadeIn 0.3s ease;
-    }
-    .adblock-banner {
+    }}
+    .adblock-banner {{
       background: linear-gradient(90deg, rgba(239, 68, 68, 0.15), rgba(249, 115, 22, 0.15));
       border: 1px solid rgba(239, 68, 68, 0.3);
       border-radius: 10px;
@@ -186,11 +187,11 @@ PLAYER_HTML_TEMPLATE = """<!DOCTYPE html>
       display: none;
       align-items: center;
       justify-content: space-between;
-    }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translate(-50%, 10px); }
-      to { opacity: 1; transform: translate(-50%, 0); }
-    }
+    }}
+    @keyframes fadeIn {{
+      from {{ opacity: 0; transform: translate(-50%, 10px); }}
+      to {{ opacity: 1; transform: translate(-50%, 0); }}
+    }}
   </style>
 </head>
 <body>
