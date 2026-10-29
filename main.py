@@ -5,6 +5,7 @@ from aiohttp import web
 import config
 from bot.client import get_tg_client
 from bot.handlers import register_handlers
+from bot.tunnel_sync import auto_sync_tunnel_loop
 from server.stream_server import create_stream_app
 
 # Configure logging
@@ -53,7 +54,10 @@ async def main():
     await site.start()
     logger.info(f"HTTP 206 Streaming Engine active on http://{config.HOST}:{config.PORT}")
 
-    # 4. Keep alive until signal received
+    # 4. Start Cloudflare Tunnel Auto-Sync watcher (self-healing URL updater)
+    asyncio.create_task(auto_sync_tunnel_loop())
+
+    # 5. Keep alive until signal received
     stop_event = asyncio.Event()
 
     def handle_stop():
