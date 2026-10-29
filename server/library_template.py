@@ -7,6 +7,8 @@ LIBRARY_HTML = """<!DOCTYPE html>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <!-- Monetag Telegram Mini App Rewarded Ad SDK -->
+  <script src="https://libtl.com/sdk.js" data-zone="12146431" data-sdk="show_12146431"></script>
   <style>
     *, *::before, *::after {
       margin: 0;
@@ -598,6 +600,35 @@ LIBRARY_HTML = """<!DOCTYPE html>
       }
     }
 
+    // Monetag Rewarded Interstitial Ad Integration
+    function openWithAd(event, targetUrl) {
+      if (event) {
+        try { event.preventDefault(); } catch(e) {}
+      }
+
+      function proceed() {
+        if (window.Telegram?.WebApp?.openLink) {
+          window.Telegram.WebApp.openLink(targetUrl);
+        } else {
+          window.open(targetUrl, '_blank');
+        }
+      }
+
+      // Check if Monetag SDK is loaded and available
+      if (typeof show_12146431 === 'function') {
+        show_12146431()
+          .then(() => {
+            proceed();
+          })
+          .catch((err) => {
+            console.warn('Monetag ad error or closed:', err);
+            proceed();
+          });
+      } else {
+        proceed();
+      }
+    }
+
     function showAuthModal() {
       document.getElementById('authModal').style.display = 'flex';
       document.getElementById('adminKeyInput').focus();
@@ -642,6 +673,13 @@ LIBRARY_HTML = """<!DOCTYPE html>
         allMedia = data.items || [];
         document.getElementById('statsBadge').textContent = `${allMedia.length} Titles`;
         renderMedia();
+
+        // Quietly preload Monetag ad in background
+        try {
+          if (typeof show_12146431 === 'function') {
+            show_12146431({ type: 'preload' });
+          }
+        } catch(e) {}
       } catch (e) {
         document.getElementById('mediaGrid').innerHTML = '<div class="empty-state">Failed to load media. Check network connection.</div>';
       }
@@ -850,8 +888,8 @@ LIBRARY_HTML = """<!DOCTYPE html>
           </div>
           <div class="card-actions">
             <div class="action-row">
-              <a href="${item.watch_url}" target="_blank" class="btn btn-watch">▶ Play Stream</a>
-              <a href="${item.blogger_url}" target="_blank" class="btn btn-blogger">🍿 Blogspot</a>
+              <a href="${item.watch_url}" onclick="openWithAd(event, '${item.watch_url}')" class="btn btn-watch">▶ Play Stream</a>
+              <a href="${item.blogger_url}" onclick="openWithAd(event, '${item.blogger_url}')" class="btn btn-blogger">🍿 Blogspot</a>
             </div>
             <div class="action-row">
               <button onclick="copyToClipboard('${item.stream_url}')" class="btn btn-copy">📋 Copy Stream Link</button>
