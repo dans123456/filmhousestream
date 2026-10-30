@@ -13,6 +13,13 @@ logger = logging.getLogger("filmhouse.bot")
 
 # In-memory batch buffers: user_id -> {"items": [...], "task": asyncio.Task, "status_msg": Message}
 _batch_buffers: dict[int, dict] = {}
+_batch_locks: dict[int, asyncio.Lock] = {}
+
+
+def get_user_lock(user_id: int) -> asyncio.Lock:
+    if user_id not in _batch_locks:
+        _batch_locks[user_id] = asyncio.Lock()
+    return _batch_locks[user_id]
 
 
 def is_authorized(user_id: int) -> bool:
@@ -49,12 +56,14 @@ async def flush_batch(client: Client, user_id: int):
     Called after debounce delay to sort episodes numerically, forward them in order
     into the Bin Channel, record them, and output a clean, verifiable list with episode titles.
     """
-    buffer_data = _batch_buffers.pop(user_id, None)
-    if not buffer_data:
-        return
+    lock = get_user_lock(user_id)
+    async with lock:
+        buffer_data = _batch_buffers.pop(user_id, None)
+        if not buffer_data:
+            return
 
-    items = buffer_data["items"]
-    status_msg: Message = buffer_data["status_msg"]
+        items = buffer_data["items"]
+        status_msg: Message = buffer_data["status_msg"]
 
     if not items:
         return
@@ -419,53 +428,55 @@ def register_handlers(app: Client):
         if not media:
             return
 
-        # Initialize or retrieve user's batch buffer
-        if user_id not in _batch_buffers:
-            status_msg = await message.reply_text("⏳ *Receiving and preparing episodes...*", quote=True)
-            _batch_buffers[user_id] = {
-                "items": [],
-                "task": None,
-                "status_msg": status_msg,
-            }
-        else:
-            status_msg = _batch_buffers[user_id]["status_msg"]
+        lock = get_user_lock(user_id)
+        async with lock:
+            # Initialize or retrieve user's batch buffer
+            if user_id not in _batch_buffers:
+                status_msg = await message.reply_text("⏳ *Receiving and preparing episodes...*", quote=True)
+                _batch_buffers[user_id] = {
+                    "items": [],
+                    "task": None,
+                    "status_msg": status_msg,
+                }
+            else:
+                status_msg = _batch_buffers[user_id]["status_msg"]
 
-        try:
-            file_name = getattr(media, "file_name", None) or f"video_{message.id}.mp4"
-            file_size = getattr(media, "file_size", 0)
-            file_size_str = format_bytes(file_size)
-            parsed = parse_filename(file_name)
+            try:
+                file_name = getattr(media, "file_name", None) or f"video_{message.id}.mp4"
+                file_size = getattr(media, "file_size", 0)
+                file_size_str = format_bytes(file_size)
+                parsed = parse_filename(file_name)
 
-            item_data = {
-                "msg": message,
-                "file_name": file_name,
-                "file_size": file_size,
-                "file_size_str": file_size_str,
-                "parsed": parsed,
-            }
+                item_data = {
+                    "msg": message,
+                    "file_name": file_name,
+                    "file_size": file_size,
+                    "file_size_str": file_size_str,
+                    "parsed": parsed,
+                }
 
-            _batch_buffers[user_id]["items"].append(item_data)
-            count = len(_batch_buffers[user_id]["items"])
+                _batch_buffers[user_id]["items"].append(item_data)
+                count = len(_batch_buffers[user_id]["items"])
 
-            if count > 1:
-                try:
-                    await status_msg.edit_text(f"⏳ *Received {count} episodes... Waiting for all files in batch...*")
-                except Exception:
-                    pass
+                if count > 1:
+                    try:
+                        await status_msg.edit_text(f"⏳ *Received {count} episodes... Waiting for all files in batch...*")
+                    except Exception:
+                        pass
 
-            # Debounce timer: wait 3.5 seconds after last forwarded message arrives
-            if _batch_buffers[user_id]["task"]:
-                _batch_buffers[user_id]["task"].cancel()
+                # Debounce timer: wait 4.5 seconds after last forwarded message arrives
+                if _batch_buffers[user_id]["task"]:
+                    _batch_buffers[user_id]["task"].cancel()
 
-            async def delayed_flush():
-                await asyncio.sleep(3.5)
-                await flush_batch(client, user_id)
+                async def delayed_flush():
+                    await asyncio.sleep(4.5)
+                    await flush_batch(client, user_id)
 
-            _batch_buffers[user_id]["task"] = asyncio.create_task(delayed_flush())
+                _batch_buffers[user_id]["task"] = asyncio.create_task(delayed_flush())
 
-        except Exception as e:
-            logger.error(f"Error handling media: {e}", exc_info=True)
-            await message.reply_text(f"❌ **Error indexing file:** `{str(e)}`")
+            except Exception as e:
+                logger.error(f"Error handling media: {e}", exc_info=True)
+                await message.reply_text(f"❌ **Error indexing file:** `{str(e)}`")
 
 
 async def send_bin_manager_menu(message: Message, edit: bool = False):
