@@ -14,6 +14,8 @@ logger = logging.getLogger("filmhouse.bot")
 # In-memory batch buffers: user_id -> {"items": [...], "task": asyncio.Task, "status_msg": Message}
 _batch_buffers: dict[int, dict] = {}
 _batch_locks: dict[int, asyncio.Lock] = {}
+# For Option B: user_id -> {"items": [...], "status_msg": Message} waiting for title text from admin
+_pending_title_batches: dict[int, dict] = {}
 
 
 def get_user_lock(user_id: int) -> asyncio.Lock:
@@ -66,6 +68,30 @@ async def flush_batch(client: Client, user_id: int):
         status_msg: Message = buffer_data["status_msg"]
 
     if not items:
+        return
+
+    # Check for Option B: Did the user forward nameless episodes?
+    # (e.g. 01.mp4, Episode 02, etc.)
+    all_need_title = all(item["parsed"].get("needs_title") for item in items)
+    if all_need_title:
+        _pending_title_batches[user_id] = {
+            "items": items,
+            "status_msg": status_msg,
+        }
+        sample_names = ", ".join([f"`{it['file_name']}`" for it in items[:3]])
+        if len(items) > 3:
+            sample_names += f" and {len(items) - 3} more..."
+
+        prompt_text = (
+            f"❓ **Series Title Needed!**\n\n"
+            f"Received **{len(items)} episodes** ({sample_names}), but they don't have a series name.\n\n"
+            f"💬 **Please reply to this message with the Series & Season name:**\n"
+            f"*(Example: `Teach You A Lesson S1` or `Squid Game Season 2`)*"
+        )
+        try:
+            await status_msg.edit_text(prompt_text)
+        except Exception:
+            await client.send_message(user_id, prompt_text)
         return
 
     # Case 1: Single file forwarded (Movie or 1 Episode)
@@ -122,6 +148,11 @@ async def flush_batch(client: Client, user_id: int):
         return
 
     # Case 2: Multiple files forwarded (Series Batch)
+    await process_series_batch(client, user_id, items, status_msg)
+
+
+async def process_series_batch(client: Client, user_id: int, items: list, status_msg: Message):
+    """Processes, sorts, forwards to bin, and outputs a formatted list for a batch of episodes."""
     groups: dict[tuple, list] = {}
     for item in items:
         p = item["parsed"]
@@ -411,6 +442,45 @@ def register_handlers(app: Client):
         )
         buttons = [[InlineKeyboardButton("🔙 Back to Bin Manager", callback_data="bin_manage")]]
         await query.message.edit_text(info_text, reply_markup=InlineKeyboardMarkup(buttons))
+
+    # ==========================================
+    # Option B: Title Reply Listener for Nameless Batches
+    # ==========================================
+
+    @app.on_message(filters.text & filters.private & ~filters.command(["start", "menu", "help", "status", "clear_bin", "library", "app"]))
+    async def title_reply_handler(client: Client, message: Message):
+        user_id = message.from_user.id
+        if not is_authorized(user_id):
+            return
+
+        if user_id not in _pending_title_batches:
+            return
+
+        pending = _pending_title_batches.pop(user_id)
+        items = pending["items"]
+        status_msg: Message = pending["status_msg"]
+
+        custom_text = message.text.strip()
+        # Parse season from the user's reply if provided (e.g., "Teach You A Lesson S2" or "Squid Game Season 1")
+        custom_parsed = parse_filename(f"{custom_text}.S01E01.mkv")
+        series_title = custom_parsed["title"]
+        season_num = custom_parsed["season"] or 1
+
+        # Check if user explicitly wrote "S2" or "Season 2"
+        s_match = re.search(r"\b(?:[sS]|season[\s\-_]*)(\d{1,2})\b", custom_text, re.IGNORECASE)
+        if s_match:
+            season_num = int(s_match.group(1))
+
+        # Update parsed metadata for all items in the batch
+        for item in items:
+            item["parsed"]["title"] = series_title
+            item["parsed"]["season"] = season_num
+            item["parsed"]["is_series"] = True
+            ep_num = item["parsed"].get("episode") or 1
+            item["parsed"]["clean_name"] = f"{series_title} S{season_num:02d}E{ep_num:02d}"
+
+        await message.reply_text(f"✅ Set Series: **{series_title} — Season {season_num}** ({len(items)} episodes)!\nForwarding to bin channel now...")
+        await process_series_batch(client, user_id, items, status_msg)
 
     # ==========================================
     # Media Batch Listener

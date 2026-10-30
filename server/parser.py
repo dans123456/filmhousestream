@@ -27,6 +27,9 @@ SERIES_PATTERNS = [
     re.compile(r"\b(?:[eE]p(?:isode)?|EP)[\s\.\-_]*(?P<episode>\d{1,3})\b"),
 ]
 
+# Pattern for bare episode names with no show name (e.g. "01", "02", "Ep 03", "Episode 4", "S01E05")
+BARE_EPISODE_REGEX = re.compile(r"^[\s\.\-_]*(?:[sS]\d{1,2}[\s\.\-_]*)?(?:[eE]p(?:isode)?|EP|\d{1,3})[\s\.\-_0-9]*$", re.IGNORECASE)
+
 QUALITY_PATTERN = re.compile(r"\b(2160p|4K|1080p|720p|480p)\b", re.IGNORECASE)
 YEAR_PATTERN = re.compile(r"\b(19\d{2}|20\d{2})\b")
 
@@ -108,11 +111,22 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
         clean_title = re.sub(tag_pattern, "", clean_title, flags=re.IGNORECASE)
 
     clean_title = re.sub(r"\s+", " ", clean_title).strip(" -_")
-    if not clean_title:
-        clean_title = name.strip()
 
-    # Title Case formatting for presentation
-    clean_title = " ".join([word.capitalize() for word in clean_title.split()])
+    # Check if the title is actually empty or just a bare number / episode tag
+    needs_title = False
+    if not clean_title or BARE_EPISODE_REGEX.match(clean_title) or clean_title.isdigit():
+        needs_title = True
+        # If is_series was not caught yet (e.g. "01.mp4"), parse numeric episode
+        if not is_series:
+            num_match = re.search(r"\b(\d{1,3})\b", name)
+            if num_match:
+                is_series = True
+                season = 1
+                episode = int(num_match.group(1))
+        clean_title = f"Episode {episode}" if episode else "Unnamed Series"
+    else:
+        # Title Case formatting for presentation
+        clean_title = " ".join([word.capitalize() for word in clean_title.split()])
 
     # 5. Build Human-Readable Display Name
     if is_series:
@@ -137,4 +151,5 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
         "year": year,
         "clean_name": clean_name,
         "original_filename": raw_filename,
+        "needs_title": needs_title,
     }

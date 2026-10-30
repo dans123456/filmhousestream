@@ -338,8 +338,182 @@ LIBRARY_HTML = """<!DOCTYPE html>
       border-color: rgba(239, 68, 68, 0.25);
       padding: 0;
     }
-    .btn-del:active {
-      background: rgba(239, 68, 68, 0.25);
+    /* Series Folder Card Styling */
+    .series-folder-card {
+      width: 100%;
+      background: linear-gradient(180deg, rgba(24, 27, 40, 0.98) 0%, rgba(14, 16, 26, 0.98) 100%);
+      border: 1px solid rgba(99, 102, 241, 0.25);
+      border-radius: 18px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      transition: all 0.2s ease;
+      position: relative;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    }
+    .folder-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .folder-title-box {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 1;
+      min-width: 0;
+    }
+    .folder-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(168, 85, 247, 0.3));
+      border: 1px solid rgba(99, 102, 241, 0.4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+    .folder-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .folder-name {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #fff;
+      line-height: 1.3;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .folder-meta {
+      font-size: 0.74rem;
+      color: #94a3b8;
+      margin-top: 2px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .folder-toggle-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #cbd5e1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      transition: transform 0.2s ease;
+      flex-shrink: 0;
+    }
+    .folder-toggle-btn.expanded {
+      transform: rotate(180deg);
+      background: rgba(99, 102, 241, 0.2);
+      color: #a5b4fc;
+    }
+
+    /* Season Tabs within Series Folder */
+    .season-tabs {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      padding-bottom: 2px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      padding-top: 4px;
+    }
+    .season-tabs::-webkit-scrollbar { display: none; }
+    .season-tab {
+      padding: 5px 12px;
+      border-radius: 8px;
+      font-size: 0.76rem;
+      font-weight: 700;
+      background: rgba(255, 255, 255, 0.04);
+      color: #94a3b8;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s;
+    }
+    .season-tab.active {
+      background: #ffbc00;
+      color: #000;
+      border-color: #ffbc00;
+      box-shadow: 0 2px 8px rgba(255, 188, 0, 0.35);
+    }
+
+    /* Episode Row within Folder */
+    .episodes-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .episode-row {
+      background: rgba(10, 12, 18, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .episode-row-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .episode-num-badge {
+      font-weight: 800;
+      font-size: 0.8rem;
+      color: #ffbc00;
+      background: rgba(255, 188, 0, 0.1);
+      padding: 2px 8px;
+      border-radius: 6px;
+      white-space: nowrap;
+    }
+    .episode-title-text {
+      font-size: 0.84rem;
+      font-weight: 600;
+      color: #f1f5f9;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .folder-admin-bar {
+      display: flex;
+      gap: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      margin-top: 4px;
+    }
+    .btn-folder-all {
+      flex: 1;
+      background: rgba(255, 188, 0, 0.12);
+      color: #ffbc00;
+      border: 1px solid rgba(255, 188, 0, 0.3);
+      font-size: 0.78rem;
+      font-weight: 700;
+      padding: 8px 12px;
+      border-radius: 9px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .btn-folder-all:active {
+      transform: scale(0.97);
     }
     .empty-state {
       text-align: center;
@@ -850,12 +1024,39 @@ LIBRARY_HTML = """<!DOCTYPE html>
         .replace(/>/g, '&gt;');
     }
 
+    // Track expanded folders and active season per series
+    const expandedFolders = new Set();
+    const activeSeasons = {}; // seriesTitle -> seasonNumber
+
+    function toggleFolder(seriesKey) {
+      if (expandedFolders.has(seriesKey)) {
+        expandedFolders.delete(seriesKey);
+      } else {
+        expandedFolders.add(seriesKey);
+      }
+      renderMedia();
+    }
+
+    function selectFolderSeason(event, seriesKey, seasonNum) {
+      event.stopPropagation();
+      activeSeasons[seriesKey] = seasonNum;
+      renderMedia();
+    }
+
+    function copyAllSeasonLinks(event, seriesTitle, seasonNum, eps) {
+      event.stopPropagation();
+      if (!eps || eps.length === 0) return;
+      const text = eps.map(e => `• Ep ${e.episode || 1}: ${e.stream_url}`).join('\n');
+      copyToClipboard(text);
+      showToast(`📋 Copied all ${eps.length} links for S${seasonNum}!`);
+    }
+
     function renderMedia() {
       const grid = document.getElementById('mediaGrid');
       const query = document.getElementById('searchInput').value.toLowerCase().trim();
 
       const filtered = allMedia.filter(item => {
-        const titleMatch = (item.display_name || item.file_name).toLowerCase().includes(query);
+        const titleMatch = (item.display_name || item.file_name || item.series_title || '').toLowerCase().includes(query);
         if (!titleMatch) return false;
 
         if (currentFilter === "series") return item.is_series;
@@ -868,10 +1069,118 @@ LIBRARY_HTML = """<!DOCTYPE html>
         return;
       }
 
-      grid.innerHTML = filtered.map(item => {
+      // Group series into folder cards
+      const seriesGroups = {}; // key -> { title, seasons: { 1: [episodes], 2: [...] }, allEpisodes: [] }
+      const standaloneItems = [];
+
+      filtered.forEach(item => {
+        if (item.is_series && item.series_title) {
+          const sTitle = item.series_title;
+          if (!seriesGroups[sTitle]) {
+            seriesGroups[sTitle] = {
+              title: sTitle,
+              seasons: {},
+              allEpisodes: [],
+              quality: item.quality || 'HD',
+            };
+          }
+          const sNum = item.season || 1;
+          if (!seriesGroups[sTitle].seasons[sNum]) {
+            seriesGroups[sTitle].seasons[sNum] = [];
+          }
+          seriesGroups[sTitle].seasons[sNum].push(item);
+          seriesGroups[sTitle].allEpisodes.push(item);
+        } else {
+          standaloneItems.push(item);
+        }
+      });
+
+      let html = '';
+
+      // 1. Render Series Folders
+      Object.keys(seriesGroups).sort().forEach(sTitle => {
+        const group = seriesGroups[sTitle];
+        const seasonKeys = Object.keys(group.seasons).map(Number).sort((a, b) => a - b);
+        const currentSeason = activeSeasons[sTitle] || seasonKeys[0] || 1;
+        const seasonEpisodes = (group.seasons[currentSeason] || []).sort((a, b) => (a.episode || 0) - (b.episode || 0));
+        const isExpanded = expandedFolders.has(sTitle) || Boolean(query); // auto-expand on search
+        const totalEpCount = group.allEpisodes.length;
+
+        html += `
+        <div class="series-folder-card">
+          <div class="folder-header" onclick="toggleFolder('${escapeHtml(sTitle)}')">
+            <div class="folder-title-box">
+              <div class="folder-icon">📺</div>
+              <div class="folder-info">
+                <div class="folder-name">${escapeHtml(sTitle)}</div>
+                <div class="folder-meta">
+                  <span>${seasonKeys.length} Season${seasonKeys.length > 1 ? 's' : ''}</span> • 
+                  <span>${totalEpCount} Episode${totalEpCount > 1 ? 's' : ''}</span>
+                </div>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span class="badge-quality">${escapeHtml(group.quality)}</span>
+              <div class="folder-toggle-btn ${isExpanded ? 'expanded' : ''}">▼</div>
+            </div>
+          </div>
+
+          ${isExpanded ? `
+            <!-- Season Selection Tabs -->
+            <div class="season-tabs">
+              ${seasonKeys.map(sNum => `
+                <button class="season-tab ${sNum === currentSeason ? 'active' : ''}" onclick="selectFolderSeason(event, '${escapeHtml(sTitle)}', ${sNum})">
+                  Season ${sNum} (${group.seasons[sNum].length})
+                </button>
+              `).join('')}
+            </div>
+
+            <!-- Episodes List -->
+            <div class="episodes-wrapper">
+              ${seasonEpisodes.map(ep => {
+                const isChecked = selectedIds.has(ep.message_id);
+                const epSub = ep.episode_title ? ` — ${ep.episode_title}` : '';
+                return `
+                <div id="card-${ep.message_id}" class="episode-row ${isChecked ? 'selected' : ''}">
+                  <div class="episode-row-header">
+                    <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0;">
+                      <div class="card-checkbox">
+                        <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="onCardCheck(event, ${ep.message_id})">
+                      </div>
+                      <span class="episode-num-badge">Ep ${ep.episode || 1}</span>
+                      <span class="episode-title-text" title="${escapeHtml(ep.file_name)}">${escapeHtml(epSub || ep.file_name)}</span>
+                    </div>
+                    <span style="font-size:0.7rem; color:#94a3b8;">${escapeHtml(ep.file_size_str || '')}</span>
+                  </div>
+                  <div class="card-actions" style="margin-top:2px;">
+                    <div class="action-row">
+                      <a href="${ep.watch_url}" onclick="openWithAd(event, '${ep.watch_url}')" class="btn btn-watch" style="min-height:34px; font-size:0.75rem;">▶ Play</a>
+                      <a href="${ep.blogger_url}" onclick="openWithAd(event, '${ep.blogger_url}')" class="btn btn-blogger" style="min-height:34px; font-size:0.75rem;">🍿 Blogspot</a>
+                      <button onclick="copyToClipboard('${ep.stream_url}')" class="btn btn-copy" style="min-height:34px; font-size:0.75rem;">📋 Link</button>
+                      <button onclick="deleteMedia(${ep.message_id}, '${escapeHtml(ep.display_name)}')" class="btn btn-del" style="min-height:34px;" title="Delete">🗑️</button>
+                    </div>
+                  </div>
+                </div>
+              `;
+              }).join('')}
+            </div>
+
+            <!-- Admin Bulk Action for Season -->
+            <div class="folder-admin-bar">
+              <button class="btn-folder-all" onclick='copyAllSeasonLinks(event, "${escapeHtml(sTitle)}", ${currentSeason}, ${JSON.stringify(seasonEpisodes)})'>
+                📋 Copy All Season ${currentSeason} Links (${seasonEpisodes.length})
+              </button>
+            </div>
+          ` : ''}
+        </div>
+        `;
+      });
+
+      // 2. Render Movies and Standalone Items
+      standaloneItems.forEach(item => {
         const isChecked = selectedIds.has(item.message_id);
         const cardClass = isChecked ? 'media-card selected' : 'media-card';
-        return `
+        html += `
         <div id="card-${item.message_id}" class="${cardClass}">
           <div class="card-top">
             <div class="card-checkbox">
@@ -897,8 +1206,10 @@ LIBRARY_HTML = """<!DOCTYPE html>
             </div>
           </div>
         </div>
-      `;
-      }).join('');
+        `;
+      });
+
+      grid.innerHTML = html;
 
       if (isSelectMode) {
         grid.classList.add('select-mode-active');
