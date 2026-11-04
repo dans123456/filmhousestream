@@ -450,6 +450,100 @@ LIBRARY_HTML = """<!DOCTYPE html>
       box-shadow: 0 2px 8px rgba(255, 188, 0, 0.35);
     }
 
+    /* Season Subfolders Inside Series Card */
+    .season-subfolders-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 6px;
+    }
+    .season-subfolder-box {
+      background: rgba(10, 12, 18, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      overflow: hidden;
+      transition: all 0.2s ease;
+    }
+    .season-subfolder-header {
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      cursor: pointer;
+      user-select: none;
+      background: rgba(255, 255, 255, 0.03);
+      transition: background 0.2s ease;
+    }
+    .season-subfolder-header:hover {
+      background: rgba(99, 102, 241, 0.12);
+    }
+    .season-subfolder-title {
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: #f8fafc;
+    }
+    .season-badge-count {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 6px;
+      background: rgba(255, 188, 0, 0.15);
+      color: #ffbc00;
+    }
+
+    /* Multi-Quality Movie Grouping */
+    .multi-quality-card {
+      width: 100%;
+      background: linear-gradient(180deg, rgba(24, 27, 40, 0.98) 0%, rgba(14, 16, 26, 0.98) 100%);
+      border: 1px solid rgba(168, 85, 247, 0.35);
+      border-radius: 18px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    }
+    .multi-quality-badge {
+      font-size: 0.72rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.25), rgba(99, 102, 241, 0.25));
+      border: 1px solid rgba(168, 85, 247, 0.4);
+      color: #d8b4fe;
+      padding: 3px 9px;
+      border-radius: 7px;
+      white-space: nowrap;
+    }
+    .quality-versions-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .quality-version-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 8px 10px;
+      background: rgba(10, 12, 18, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 10px;
+    }
+    .quality-version-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      min-width: 180px;
+    }
+    .quality-version-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
     /* Episode Row within Folder */
     .episodes-wrapper {
       display: flex;
@@ -1024,9 +1118,9 @@ LIBRARY_HTML = """<!DOCTYPE html>
         .replace(/>/g, '&gt;');
     }
 
-    // Track expanded folders and active season per series
+    // Track expanded folders, seasons, and active season per series
     const expandedFolders = new Set();
-    const activeSeasons = {}; // seriesTitle -> seasonNumber
+    const expandedSeasons = new Set(); // "SeriesTitle_S1"
 
     function toggleFolder(seriesKey) {
       if (expandedFolders.has(seriesKey)) {
@@ -1037,9 +1131,13 @@ LIBRARY_HTML = """<!DOCTYPE html>
       renderMedia();
     }
 
-    function selectFolderSeason(event, seriesKey, seasonNum) {
-      event.stopPropagation();
-      activeSeasons[seriesKey] = seasonNum;
+    function toggleSeason(event, seasonKey) {
+      if (event) event.stopPropagation();
+      if (expandedSeasons.has(seasonKey)) {
+        expandedSeasons.delete(seasonKey);
+      } else {
+        expandedSeasons.add(seasonKey);
+      }
       renderMedia();
     }
 
@@ -1097,12 +1195,10 @@ LIBRARY_HTML = """<!DOCTYPE html>
 
       let html = '';
 
-      // 1. Render Series Folders
+      // 1. Render Series Folders with Collapsible Season Subfolders
       Object.keys(seriesGroups).sort().forEach(sTitle => {
         const group = seriesGroups[sTitle];
         const seasonKeys = Object.keys(group.seasons).map(Number).sort((a, b) => a - b);
-        const currentSeason = activeSeasons[sTitle] || seasonKeys[0] || 1;
-        const seasonEpisodes = (group.seasons[currentSeason] || []).sort((a, b) => (a.episode || 0) - (b.episode || 0));
         const isExpanded = expandedFolders.has(sTitle) || Boolean(query); // auto-expand on search
         const totalEpCount = group.allEpisodes.length;
 
@@ -1126,87 +1222,163 @@ LIBRARY_HTML = """<!DOCTYPE html>
           </div>
 
           ${isExpanded ? `
-            <!-- Season Selection Tabs -->
-            <div class="season-tabs">
-              ${seasonKeys.map(sNum => `
-                <button class="season-tab ${sNum === currentSeason ? 'active' : ''}" onclick="selectFolderSeason(event, '${escapeHtml(sTitle)}', ${sNum})">
-                  Season ${sNum} (${group.seasons[sNum].length})
-                </button>
-              `).join('')}
-            </div>
+            <div class="season-subfolders-container">
+              ${seasonKeys.map(sNum => {
+                const seasonId = `${sTitle}_S${sNum}`;
+                const isSeasonOpen = expandedSeasons.has(seasonId) || seasonKeys.length === 1 || Boolean(query);
+                const seasonEpisodes = (group.seasons[sNum] || []).sort((a, b) => (a.episode || 0) - (b.episode || 0));
 
-            <!-- Episodes List -->
-            <div class="episodes-wrapper">
-              ${seasonEpisodes.map(ep => {
-                const isChecked = selectedIds.has(ep.message_id);
-                const epSub = ep.episode_title ? ` — ${ep.episode_title}` : '';
                 return `
-                <div id="card-${ep.message_id}" class="episode-row ${isChecked ? 'selected' : ''}">
-                  <div class="episode-row-header">
-                    <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0;">
-                      <div class="card-checkbox">
-                        <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="onCardCheck(event, ${ep.message_id})">
-                      </div>
-                      <span class="episode-num-badge">Ep ${ep.episode || 1}</span>
-                      <span class="episode-title-text" title="${escapeHtml(ep.file_name)}">${escapeHtml(epSub || ep.file_name)}</span>
+                <div class="season-subfolder-box">
+                  <div class="season-subfolder-header" onclick="toggleSeason(event, '${escapeHtml(seasonId)}')">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <span style="font-size:1.1rem;">📂</span>
+                      <span class="season-subfolder-title">Season ${sNum}</span>
+                      <span class="season-badge-count">${seasonEpisodes.length} Episodes</span>
                     </div>
-                    <span style="font-size:0.7rem; color:#94a3b8;">${escapeHtml(ep.file_size_str || '')}</span>
+                    <div class="folder-toggle-btn ${isSeasonOpen ? 'expanded' : ''}" style="width:28px; height:28px; font-size:0.75rem;">▼</div>
                   </div>
-                  <div class="card-actions" style="margin-top:2px;">
-                    <div class="action-row">
-                      <a href="${ep.watch_url}" onclick="openWithAd(event, '${ep.watch_url}')" class="btn btn-watch" style="min-height:34px; font-size:0.75rem;">▶ Play</a>
-                      <a href="${ep.blogger_url}" onclick="openWithAd(event, '${ep.blogger_url}')" class="btn btn-blogger" style="min-height:34px; font-size:0.75rem;">🍿 Blogspot</a>
-                      <button onclick="copyToClipboard('${ep.stream_url}')" class="btn btn-copy" style="min-height:34px; font-size:0.75rem;">📋 Link</button>
-                      <button onclick="deleteMedia(${ep.message_id}, '${escapeHtml(ep.display_name)}')" class="btn btn-del" style="min-height:34px;" title="Delete">🗑️</button>
-                    </div>
-                  </div>
-                </div>
-              `;
-              }).join('')}
-            </div>
 
-            <!-- Admin Bulk Action for Season -->
-            <div class="folder-admin-bar">
-              <button class="btn-folder-all" onclick='copyAllSeasonLinks(event, "${escapeHtml(sTitle)}", ${currentSeason}, ${JSON.stringify(seasonEpisodes)})'>
-                📋 Copy All Season ${currentSeason} Links (${seasonEpisodes.length})
-              </button>
+                  ${isSeasonOpen ? `
+                    <div class="episodes-wrapper" style="padding: 10px;">
+                      ${seasonEpisodes.map(ep => {
+                        const isChecked = selectedIds.has(ep.message_id);
+                        const epSub = ep.episode_title ? ` — ${ep.episode_title}` : '';
+                        return `
+                        <div id="card-${ep.message_id}" class="episode-row ${isChecked ? 'selected' : ''}">
+                          <div class="episode-row-header">
+                            <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0;">
+                              <div class="card-checkbox">
+                                <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="onCardCheck(event, ${ep.message_id})">
+                              </div>
+                              <span class="episode-num-badge">Ep ${ep.episode || 1}</span>
+                              <span class="episode-title-text" title="${escapeHtml(ep.file_name)}">${escapeHtml(epSub || ep.file_name)}</span>
+                            </div>
+                            <span style="font-size:0.7rem; color:#94a3b8;">${escapeHtml(ep.file_size_str || '')}</span>
+                          </div>
+                          <div class="card-actions" style="margin-top:2px;">
+                            <div class="action-row">
+                              <a href="${ep.watch_url}" onclick="openWithAd(event, '${ep.watch_url}')" class="btn btn-watch" style="min-height:34px; font-size:0.75rem;">▶ Play</a>
+                              <a href="${ep.blogger_url}" onclick="openWithAd(event, '${ep.blogger_url}')" class="btn btn-blogger" style="min-height:34px; font-size:0.75rem;">🍿 Blogspot</a>
+                              <button onclick="copyToClipboard('${ep.stream_url}')" class="btn btn-copy" style="min-height:34px; font-size:0.75rem;">📋 Link</button>
+                              <button onclick="deleteMedia(${ep.message_id}, '${escapeHtml(ep.display_name)}')" class="btn btn-del" style="min-height:34px;" title="Delete">🗑️</button>
+                            </div>
+                          </div>
+                        </div>
+                        `;
+                      }).join('')}
+                    </div>
+
+                    <div class="folder-admin-bar" style="margin: 0 10px 10px 10px;">
+                      <button class="btn-folder-all" onclick='copyAllSeasonLinks(event, "${escapeHtml(sTitle)}", ${sNum}, ${JSON.stringify(seasonEpisodes)})'>
+                        📋 Copy All Season ${sNum} Links (${seasonEpisodes.length})
+                      </button>
+                    </div>
+                  ` : ''}
+                </div>
+                `;
+              }).join('')}
             </div>
           ` : ''}
         </div>
         `;
       });
 
-      // 2. Render Movies and Standalone Items
+      // 2. Render Movies (with Smart Multi-Quality Grouping!)
+      const movieGroups = {};
       standaloneItems.forEach(item => {
-        const isChecked = selectedIds.has(item.message_id);
-        const cardClass = isChecked ? 'media-card selected' : 'media-card';
-        html += `
-        <div id="card-${item.message_id}" class="${cardClass}">
-          <div class="card-top">
-            <div class="card-checkbox">
-              <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="onCardCheck(event, ${item.message_id})">
+        // Strip out quality tags to merge duplicate movie versions
+        const cleanTitle = (item.display_name || item.file_name || '')
+          .replace(/\[\s*(1080p|720p|480p|2160p|4k|uhd|bluray|webrip|web-dl|hdrip|hd|cam)\s*\]/gi, '')
+          .replace(/\b(1080p|720p|480p|2160p|4k|uhd|bluray|webrip|web-dl|hdrip|hd|cam|6ch|x264|x265|hevc)\b/gi, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .toLowerCase();
+
+        const groupKey = cleanTitle || (item.display_name || item.file_name).toLowerCase();
+        if (!movieGroups[groupKey]) {
+          movieGroups[groupKey] = {
+            title: item.display_name || item.file_name,
+            items: [],
+          };
+        }
+        movieGroups[groupKey].items.push(item);
+      });
+
+      Object.keys(movieGroups).sort().forEach(key => {
+        const mGroup = movieGroups[key];
+        if (mGroup.items.length === 1) {
+          // Standard Single Movie Card
+          const item = mGroup.items[0];
+          const isChecked = selectedIds.has(item.message_id);
+          const cardClass = isChecked ? 'media-card selected' : 'media-card';
+          html += `
+          <div id="card-${item.message_id}" class="${cardClass}">
+            <div class="card-top">
+              <div class="card-checkbox">
+                <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="onCardCheck(event, ${item.message_id})">
+              </div>
+              <div class="card-title-wrap">
+                <div class="card-title">${escapeHtml(item.display_name)}</div>
+              </div>
+              <span class="badge-quality">${escapeHtml(item.quality || 'HD')}</span>
             </div>
-            <div class="card-title-wrap">
-              <div class="card-title">${escapeHtml(item.display_name)}</div>
+            <div class="card-meta">
+              <div class="file-badge">📁 ${escapeHtml(item.file_name)}</div>
+              ${item.file_size_str ? `<span class="size-badge">📦 ${escapeHtml(item.file_size_str)}</span>` : ''}
             </div>
-            <span class="badge-quality">${escapeHtml(item.quality || 'HD')}</span>
+            <div class="card-actions">
+              <div class="action-row">
+                <a href="${item.watch_url}" onclick="openWithAd(event, '${item.watch_url}')" class="btn btn-watch">▶ Play Stream</a>
+                <a href="${item.blogger_url}" onclick="openWithAd(event, '${item.blogger_url}')" class="btn btn-blogger">🍿 Blogspot</a>
+              </div>
+              <div class="action-row">
+                <button onclick="copyToClipboard('${item.stream_url}')" class="btn btn-copy">📋 Copy Stream Link</button>
+                <button onclick="deleteMedia(${item.message_id}, '${escapeHtml(item.display_name)}')" class="btn btn-del" title="Delete from Storage">🗑️</button>
+              </div>
+            </div>
           </div>
-          <div class="card-meta">
-            <div class="file-badge">📁 ${escapeHtml(item.file_name)}</div>
-            ${item.file_size_str ? `<span class="size-badge">📦 ${escapeHtml(item.file_size_str)}</span>` : ''}
-          </div>
-          <div class="card-actions">
-            <div class="action-row">
-              <a href="${item.watch_url}" onclick="openWithAd(event, '${item.watch_url}')" class="btn btn-watch">▶ Play Stream</a>
-              <a href="${item.blogger_url}" onclick="openWithAd(event, '${item.blogger_url}')" class="btn btn-blogger">🍿 Blogspot</a>
+          `;
+        } else {
+          // Multi-Quality Grouped Movie Card
+          const qualityTags = mGroup.items.map(it => it.quality || 'HD');
+          html += `
+          <div class="multi-quality-card">
+            <div class="card-top">
+              <div class="card-title-wrap">
+                <div class="card-title" style="font-size:1.05rem;">🎬 ${escapeHtml(mGroup.title)}</div>
+              </div>
+              <span class="multi-quality-badge">✨ ${mGroup.items.length} Qualities Available</span>
             </div>
-            <div class="action-row">
-              <button onclick="copyToClipboard('${item.stream_url}')" class="btn btn-copy">📋 Copy Stream Link</button>
-              <button onclick="deleteMedia(${item.message_id}, '${escapeHtml(item.display_name)}')" class="btn btn-del" title="Delete from Storage">🗑️</button>
+            <div class="card-meta" style="margin-top: -4px;">
+              <span style="font-size:0.75rem; color:#94a3b8;">Versions: ${escapeHtml(qualityTags.join(' • '))}</span>
+            </div>
+            <div class="quality-versions-list">
+              ${mGroup.items.map(v => {
+                const isChecked = selectedIds.has(v.message_id);
+                return `
+                <div id="card-${v.message_id}" class="quality-version-row ${isChecked ? 'selected' : ''}">
+                  <div class="quality-version-info">
+                    <div class="card-checkbox">
+                      <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="onCardCheck(event, ${v.message_id})">
+                    </div>
+                    <span class="badge-quality">${escapeHtml(v.quality || 'HD')}</span>
+                    ${v.file_size_str ? `<span class="size-badge">📦 ${escapeHtml(v.file_size_str)}</span>` : ''}
+                    <span style="font-size:0.72rem; color:#94a3b8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:180px;">${escapeHtml(v.file_name)}</span>
+                  </div>
+                  <div class="quality-version-actions">
+                    <a href="${v.watch_url}" onclick="openWithAd(event, '${v.watch_url}')" class="btn btn-watch" style="min-height:30px; font-size:0.75rem; padding:4px 8px;">▶ Play</a>
+                    <a href="${v.blogger_url}" onclick="openWithAd(event, '${v.blogger_url}')" class="btn btn-blogger" style="min-height:30px; font-size:0.75rem; padding:4px 8px;">🍿 Blogspot</a>
+                    <button onclick="copyToClipboard('${v.stream_url}')" class="btn btn-copy" style="min-height:30px; font-size:0.75rem; padding:4px 8px;">📋 Link</button>
+                    <button onclick="deleteMedia(${v.message_id}, '${escapeHtml(v.display_name)}')" class="btn btn-del" style="min-height:30px; padding:4px 8px;" title="Delete">🗑️</button>
+                  </div>
+                </div>
+                `;
+              }).join('')}
             </div>
           </div>
-        </div>
-        `;
+          `;
+        }
       });
 
       grid.innerHTML = html;

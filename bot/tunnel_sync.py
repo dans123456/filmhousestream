@@ -94,19 +94,29 @@ def update_telegram_menu_button(library_url: str) -> bool:
 
 async def auto_sync_tunnel_loop():
     """
-    Background worker that continuously watches tunnel.log for new Cloudflare URLs,
-    synchronizing config.SERVER_URL, .env, and the Telegram WebApp Menu Button.
+    Background worker that watches tunnel.log for temporary Cloudflare URLs.
+    Safeguard: If a permanent custom domain or public IP is already configured
+    in config.SERVER_URL, this watcher will NEVER overwrite it.
     """
     logger.info("Starting Cloudflare Tunnel Auto-Sync watcher...")
 
     while True:
         try:
-            latest_url = find_latest_tunnel_url()
-            if latest_url and latest_url != config.SERVER_URL:
-                logger.info(f"Detected new Cloudflare Tunnel URL: {latest_url} (was: {config.SERVER_URL})")
-                config.SERVER_URL = latest_url
-                update_env_server_url(latest_url)
-                update_telegram_menu_button(f"{latest_url}/library")
+            # Only auto-sync if currently using a temporary trycloudflare or localhost URL
+            is_temporary = (
+                not config.SERVER_URL
+                or "trycloudflare.com" in config.SERVER_URL
+                or "localhost" in config.SERVER_URL
+                or "127.0.0.1" in config.SERVER_URL
+            )
+
+            if is_temporary:
+                latest_url = find_latest_tunnel_url()
+                if latest_url and latest_url != config.SERVER_URL:
+                    logger.info(f"Detected new Cloudflare Tunnel URL: {latest_url} (was: {config.SERVER_URL})")
+                    config.SERVER_URL = latest_url
+                    update_env_server_url(latest_url)
+                    update_telegram_menu_button(f"{latest_url}/library")
         except Exception as e:
             logger.error(f"Error in tunnel sync loop: {e}")
 

@@ -1,3 +1,6 @@
+import io
+import time
+import re
 import asyncio
 import logging
 import urllib.parse
@@ -201,24 +204,27 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
             except Exception as e:
                 logger.error(f"Error forwarding episode {idx}: {e}")
 
-        # 3. BUILD CLEAN, VERIFIABLE OUTPUT WITH EPISODE TITLES
+        # 3. BUILD ULTRA-CLEAN COMPACT OUTPUT & DOWNLOADABLE .TXT LEDGER
         header = (
             f"📺 **{show_title} — Season {season}**\n"
-            f"⚡ **{len(processed_links)} Episodes Indexed in Strict Numerical Order!**\n\n"
-            f"📋 **Copy & Paste into FilmHouse Admin:**\n\n"
+            f"⚡ **{len(processed_links)} Episodes Indexed & Sorted!**\n\n"
+            f"📋 **Copy & Paste into Admin:**\n\n"
         )
 
+        # Build clean compact lines (E01: url)
+        # Up to 35 episodes shown in main message; 100% of all episodes included in .txt attachment
+        max_preview = 35
+        display_eps = processed_links[:max_preview]
         lines = []
-        for ep in processed_links:
-            lines.append(f"• **Ep {ep['ep_num']}{ep['title_label']}**\n  `{ep['stream_url']}`\n")
+        for ep in display_eps:
+            ep_tag = f"E{ep['ep_num']:02d}"
+            title_part = f" ({ep['title_label'].lstrip(' — ')})" if ep['title_label'] else ""
+            lines.append(f"`{ep_tag}`{title_part}: `{ep['stream_url']}`\n")
 
-        # Chunk messages if exceeding Telegram 4000 char limit
-        current_chunk = header
-        for line in lines:
-            if len(current_chunk) + len(line) + 100 > 3800:
-                await client.send_message(user_id, current_chunk, disable_web_page_preview=True)
-                current_chunk = f"📺 **{show_title} — Season {season} (Continued):**\n\n"
-            current_chunk += line
+        body_text = header + "".join(lines)
+        if len(processed_links) > max_preview:
+            remaining = len(processed_links) - max_preview
+            body_text += f"\n➕ *...and {remaining} more episodes! Full list attached in .txt below.*"
 
         first_stream = processed_links[0]["stream_url"] if processed_links else ""
         first_blogger = build_blogspot_url(first_stream, f"{show_title} S{season:02d}E01") if first_stream else config.BLOGGER_URL
@@ -228,9 +234,38 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
         ]
 
         try:
-            await status_msg.edit_text(current_chunk, reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
+            await status_msg.edit_text(body_text, reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
         except Exception:
-            await client.send_message(user_id, current_chunk, reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
+            await client.send_message(user_id, body_text, reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
+
+        # 4. AUTO-ATTACH .TXT FILE FOR 1-CLICK COPY / BULK BACKUP
+        try:
+            txt_lines = [
+                f"============================================================",
+                f"FilmHouse Streaming Engine - Episode Export Ledger",
+                f"Series: {show_title} - Season {season}",
+                f"Total Episodes: {len(processed_links)}",
+                f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}",
+                f"============================================================\n",
+            ]
+            for ep in processed_links:
+                ep_tag = f"E{ep['ep_num']:02d}"
+                title_clean = ep['title_label'].lstrip(' — ') if ep['title_label'] else ep['file_name']
+                txt_lines.append(f"{ep_tag} | {title_clean}\n{ep['stream_url']}\n")
+
+            txt_data = "\n".join(txt_lines).encode("utf-8")
+            txt_buffer = io.BytesIO(txt_data)
+            clean_filename = re.sub(r"[^a-zA-Z0-9_\-]", "_", f"{show_title}_S{season:02d}")
+            txt_buffer.name = f"{clean_filename}_All_Links.txt"
+
+            await client.send_document(
+                chat_id=user_id,
+                document=txt_buffer,
+                file_name=txt_buffer.name,
+                caption=f"📄 **{show_title} — Season {season} Complete Ledger**\n*All {len(processed_links)} links ready to copy in 1 click!*"
+            )
+        except Exception as e:
+            logger.error(f"Error attaching .txt export file: {e}")
 
 
 def register_handlers(app: Client):
@@ -530,16 +565,16 @@ def register_handlers(app: Client):
 
                 if count > 1:
                     try:
-                        await status_msg.edit_text(f"⏳ *Received {count} episodes... Waiting for all files in batch...*")
+                        await status_msg.edit_text(f"⏳ *Received {count} episodes... Waiting for all files in batch (8s buffer)...*")
                     except Exception:
                         pass
 
-                # Debounce timer: wait 4.5 seconds after last forwarded message arrives
+                # Debounce timer: wait 8.0 seconds after last forwarded message arrives to capture full batch
                 if _batch_buffers[user_id]["task"]:
                     _batch_buffers[user_id]["task"].cancel()
 
                 async def delayed_flush():
-                    await asyncio.sleep(4.5)
+                    await asyncio.sleep(8.0)
                     await flush_batch(client, user_id)
 
                 _batch_buffers[user_id]["task"] = asyncio.create_task(delayed_flush())

@@ -371,6 +371,9 @@ async def handle_watch(request: web.Request) -> web.Response:
     Renders the Plyr.io web video player page for the given video token.
     """
     token = request.match_info.get("token", "")
+    # Strip optional extensions (.mp4, .mkv) for apps that require a video file extension in URL
+    if "." in token:
+        token = token.split(".")[0]
     message_id = verify_stream_token(token)
     if not message_id:
         return web.Response(text="Invalid or expired video link.", status=403)
@@ -478,6 +481,9 @@ async def handle_stream(request: web.Request) -> web.StreamResponse:
         )
 
     token = request.match_info.get("token", "")
+    # Strip optional extensions (.mp4, .mkv) for apps that require a video file extension in URL
+    if "." in token:
+        token = token.split(".")[0]
     message_id = verify_stream_token(token)
     if not message_id:
         return web.Response(text="Invalid or unauthorized stream token.", status=403)
@@ -778,7 +784,13 @@ def create_stream_app() -> web.Application:
     app.router.add_get("/watch/{token}", handle_watch)
     
     # In aiohttp, add_get automatically registers both GET and HEAD!
-    for path in ("/stream/{token}", "/dl/{token}"):
+    # Supports direct tokens, extensions (/dl/token.mp4), and named paths (/dl/token/video.mp4)
+    for path in (
+        "/stream/{token}",
+        "/dl/{token}",
+        "/stream/{token}/{filename:.*}",
+        "/dl/{token}/{filename:.*}",
+    ):
         app.router.add_get(path, handle_stream)
         app.router.add_route("OPTIONS", path, handle_stream)
         
