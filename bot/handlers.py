@@ -165,7 +165,7 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
         groups[key].append(item)
 
     for (show_title, season), ep_items in groups.items():
-        # 1. SORT STRICTLY BY EPISODE NUMBER (Ep 1 -> Ep 100)
+        # 1. SORT STRICTLY BY EPISODE NUMBER (Ep 1 -> Ep 100+)
         ep_items.sort(key=lambda x: (x["parsed"]["episode"] or 0, x["file_name"]))
         total_eps = len(ep_items)
 
@@ -199,33 +199,20 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
                     "stream_url": stream_url,
                     "file_name": ep_item["file_name"],
                 })
+
+                # Live progress update every 10 episodes so admin knows it's actively working
+                if idx % 10 == 0 or idx == total_eps:
+                    try:
+                        await status_msg.edit_text(f"⏳ *Storing & indexing: {idx} / {total_eps} episodes in storage channel...*")
+                    except Exception:
+                        pass
+
                 # Small pause to guarantee Telegram timestamp order in channel
                 await asyncio.sleep(0.3)
             except Exception as e:
                 logger.error(f"Error forwarding episode {idx}: {e}")
 
-        # 3. BUILD ULTRA-CLEAN COMPACT OUTPUT & DOWNLOADABLE .TXT LEDGER
-        header = (
-            f"📺 **{show_title} — Season {season}**\n"
-            f"⚡ **{len(processed_links)} Episodes Indexed & Sorted!**\n\n"
-            f"📋 **Copy & Paste into Admin:**\n\n"
-        )
-
-        # Build clean compact lines (E01: url)
-        # Up to 35 episodes shown in main message; 100% of all episodes included in .txt attachment
-        max_preview = 35
-        display_eps = processed_links[:max_preview]
-        lines = []
-        for ep in display_eps:
-            ep_tag = f"E{ep['ep_num']:02d}"
-            title_part = f" ({ep['title_label'].lstrip(' — ')})" if ep['title_label'] else ""
-            lines.append(f"`{ep_tag}`{title_part}: `{ep['stream_url']}`\n")
-
-        body_text = header + "".join(lines)
-        if len(processed_links) > max_preview:
-            remaining = len(processed_links) - max_preview
-            body_text += f"\n➕ *...and {remaining} more episodes! Full list attached in .txt below.*"
-
+        # 3. BUILD CLEAN COMPACT OUTPUT & CHUNK IF > 40 EPISODES
         first_stream = processed_links[0]["stream_url"] if processed_links else ""
         first_blogger = build_blogspot_url(first_stream, f"{show_title} S{season:02d}E01") if first_stream else config.BLOGGER_URL
         buttons = [
@@ -233,12 +220,41 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
             [InlineKeyboardButton("📱 View Library (All Episodes)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library"))],
         ]
 
-        try:
-            await status_msg.edit_text(body_text, reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
-        except Exception:
-            await client.send_message(user_id, body_text, reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
+        # Break links into clean message chunks of 35 episodes so Telegram 4096-char limit is never exceeded
+        chunk_size = 35
+        total_chunks = (len(processed_links) + chunk_size - 1) // chunk_size
 
-        # 4. AUTO-ATTACH .TXT FILE FOR 1-CLICK COPY / BULK BACKUP
+        for c_idx in range(total_chunks):
+            start_i = c_idx * chunk_size
+            end_i = min(start_i + chunk_size, len(processed_links))
+            chunk_eps = processed_links[start_i:end_i]
+
+            part_label = f" (Part {c_idx + 1}/{total_chunks})" if total_chunks > 1 else ""
+            header = (
+                f"📺 **{show_title} — Season {season}**{part_label}\n"
+                f"⚡ **{len(processed_links)} Episodes Indexed & Sorted!**\n\n"
+                f"📋 **Copy & Paste into Admin:**\n\n"
+            )
+
+            lines = []
+            for ep in chunk_eps:
+                ep_tag = f"E{ep['ep_num']:02d}"
+                title_part = f" ({ep['title_label'].lstrip(' — ')})" if ep['title_label'] else ""
+                lines.append(f"`{ep_tag}`{title_part}: `{ep['stream_url']}`\n")
+
+            body_text = header + "".join(lines)
+
+            # First chunk edits the status message; subsequent chunks send new messages
+            reply_markup = InlineKeyboardMarkup(buttons) if c_idx == 0 else None
+            try:
+                if c_idx == 0:
+                    await status_msg.edit_text(body_text, reply_markup=reply_markup, disable_web_page_preview=True)
+                else:
+                    await client.send_message(user_id, body_text, disable_web_page_preview=True)
+            except Exception:
+                await client.send_message(user_id, body_text, reply_markup=reply_markup, disable_web_page_preview=True)
+
+        # 4. AUTO-ATTACH .TXT FILE FOR 1-CLICK COPY / BULK BACKUP (ALL 50 - 200+ EPISODES)
         try:
             txt_lines = [
                 f"============================================================",
@@ -478,6 +494,22 @@ def register_handlers(app: Client):
         buttons = [[InlineKeyboardButton("🔙 Back to Bin Manager", callback_data="bin_manage")]]
         await query.message.edit_text(info_text, reply_markup=InlineKeyboardMarkup(buttons))
 
+    @app.on_callback_query(filters.regex("batch_flush_now"))
+    async def batch_flush_now_callback(client: Client, query: CallbackQuery):
+        """Immediately processes the accumulated batch without waiting for the 25s timer."""
+        user_id = query.from_user.id
+        if not is_authorized(user_id):
+            await query.answer("⛔ Access Denied.", show_alert=True)
+            return
+
+        lock = get_user_lock(user_id)
+        async with lock:
+            if user_id in _batch_buffers and _batch_buffers[user_id].get("task"):
+                _batch_buffers[user_id]["task"].cancel()
+
+        await query.answer("⚡ Processing all collected episodes now!")
+        await flush_batch(client, user_id)
+
     # ==========================================
     # Option B: Title Reply Listener for Nameless Batches
     # ==========================================
@@ -563,18 +595,36 @@ def register_handlers(app: Client):
                 _batch_buffers[user_id]["items"].append(item_data)
                 count = len(_batch_buffers[user_id]["items"])
 
+                btn = InlineKeyboardMarkup([
+                    [InlineKeyboardButton(f"⚡ Finish & Process All {count} Episodes Now", callback_data="batch_flush_now")]
+                ])
+
                 if count > 1:
                     try:
-                        await status_msg.edit_text(f"⏳ *Received {count} episodes... Waiting for all files in batch (8s buffer)...*")
+                        await status_msg.edit_text(
+                            f"📥 **Batch Buffer: {count} episodes collected!**\n\n"
+                            f"💡 *You can keep forwarding more files (50 to 200+ episodes across multiple forwards).*\n\n"
+                            f"When finished sending all files, tap below or wait 25s:",
+                            reply_markup=btn
+                        )
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        await status_msg.edit_text(
+                            f"⏳ *Received 1 file... Forwarding more episodes?*\n"
+                            f"Send the rest now, or tap below to process:",
+                            reply_markup=btn
+                        )
                     except Exception:
                         pass
 
-                # Debounce timer: wait 8.0 seconds after last forwarded message arrives to capture full batch
+                # Debounce timer: wait 25.0 seconds after last forwarded message arrives to capture large multi-part batches
                 if _batch_buffers[user_id]["task"]:
                     _batch_buffers[user_id]["task"].cancel()
 
                 async def delayed_flush():
-                    await asyncio.sleep(8.0)
+                    await asyncio.sleep(25.0)
                     await flush_batch(client, user_id)
 
                 _batch_buffers[user_id]["task"] = asyncio.create_task(delayed_flush())
