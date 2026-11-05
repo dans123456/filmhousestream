@@ -220,8 +220,8 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
             [InlineKeyboardButton("📱 View Library (All Episodes)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library"))],
         ]
 
-        # Break links into clean message chunks of 35 episodes so Telegram 4096-char limit is never exceeded
-        chunk_size = 35
+        # Break links into clean message chunks of exactly 20 episodes each
+        chunk_size = 20
         total_chunks = (len(processed_links) + chunk_size - 1) // chunk_size
 
         for c_idx in range(total_chunks):
@@ -229,7 +229,11 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
             end_i = min(start_i + chunk_size, len(processed_links))
             chunk_eps = processed_links[start_i:end_i]
 
-            part_label = f" (Part {c_idx + 1}/{total_chunks})" if total_chunks > 1 else ""
+            start_ep_num = chunk_eps[0]["ep_num"]
+            end_ep_num = chunk_eps[-1]["ep_num"]
+            ep_range = f"Ep {start_ep_num:02d} – {end_ep_num:02d}"
+
+            part_label = f" (Part {c_idx + 1}/{total_chunks} • {ep_range})" if total_chunks > 1 else ""
             header = (
                 f"📺 **{show_title} — Season {season}**{part_label}\n"
                 f"⚡ **{len(processed_links)} Episodes Indexed & Sorted!**\n\n"
@@ -253,35 +257,6 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
                     await client.send_message(user_id, body_text, disable_web_page_preview=True)
             except Exception:
                 await client.send_message(user_id, body_text, reply_markup=reply_markup, disable_web_page_preview=True)
-
-        # 4. AUTO-ATTACH .TXT FILE FOR 1-CLICK COPY / BULK BACKUP (ALL 50 - 200+ EPISODES)
-        try:
-            txt_lines = [
-                f"============================================================",
-                f"FilmHouse Streaming Engine - Episode Export Ledger",
-                f"Series: {show_title} - Season {season}",
-                f"Total Episodes: {len(processed_links)}",
-                f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}",
-                f"============================================================\n",
-            ]
-            for ep in processed_links:
-                ep_tag = f"E{ep['ep_num']:02d}"
-                title_clean = ep['title_label'].lstrip(' — ') if ep['title_label'] else ep['file_name']
-                txt_lines.append(f"{ep_tag} | {title_clean}\n{ep['stream_url']}\n")
-
-            txt_data = "\n".join(txt_lines).encode("utf-8")
-            txt_buffer = io.BytesIO(txt_data)
-            clean_filename = re.sub(r"[^a-zA-Z0-9_\-]", "_", f"{show_title}_S{season:02d}")
-            txt_buffer.name = f"{clean_filename}_All_Links.txt"
-
-            await client.send_document(
-                chat_id=user_id,
-                document=txt_buffer,
-                file_name=txt_buffer.name,
-                caption=f"📄 **{show_title} — Season {season} Complete Ledger**\n*All {len(processed_links)} links ready to copy in 1 click!*"
-            )
-        except Exception as e:
-            logger.error(f"Error attaching .txt export file: {e}")
 
 
 def register_handlers(app: Client):
