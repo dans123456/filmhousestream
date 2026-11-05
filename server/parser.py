@@ -33,6 +33,8 @@ SERIES_PATTERNS = [
     re.compile(r"[sS]eason[\s\.\-_]*(?P<season>\d{1,2})[\s\.\-_]*[eE]p(?:isode)?[\s\.\-_]*(?P<episode>\d{1,3})", re.IGNORECASE),
     # Just Episode / Ep 01 (assumes Season 1)
     re.compile(r"\b(?:[eE]p(?:isode)?|EP)[\s\.\-_]*(?P<episode>\d{1,3})\b"),
+    # Standalone E01, E02 (assumes Season 1) (e.g. The.Remarried.Empress.E01.720p)
+    re.compile(r"(?:^|[\s\.\-_])[eE](?P<episode>\d{1,3})(?:[\s\.\-_]|\b)"),
 ]
 
 # Pattern for bare episode names with no show name (e.g. "01", "02", "Ep 03", "Episode 4", "S01E05")
