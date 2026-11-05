@@ -30,10 +30,9 @@ venv/
 env/
 ENV/
 
-# Pyrogram / Telethon session files & database
-*.session
-*.session-journal
-bot.session*
+# Local runtime data
+data/
+*.session*
 
 # Logs
 *.log
