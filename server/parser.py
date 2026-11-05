@@ -12,10 +12,11 @@ CLEANUP_TAGS = [
     r"\b(dd5[\.\s]?1|ddp5[\.\s]?1|dd\+?5[\.\s]?1|dts[\.\s]?hd)\b",
     r"\b(nf|amzn|dsnp|dplus|hulu|atvp|max|stan|zee5|hotstar)\b",  # Streamer tags
     r"\b(yts|rarbg|psa|pahe|galaxytv|galaxyrg|tgx|cinevood|katmoviehd|mkvcinemas|nk)\b",
-    r"\b(esub|esubs|multisubs|multi-sub|multi audio|dual audio|hindi|english|eng|fi|fin|kor|jap|mandarin|org)\b",
+    r"\b(esub|esubs|multisubs|multi-sub|multi audio|dual audio|dual|hindi|english|eng|fi|fin|kor|jap|mandarin|org)\b",
     r"\b(repack|proper|remastered|extended|unrated|imax)\b",
     r"\b\d+(\.\d+)?\s*(mb|gb)\b",  # File sizes like 800mb, 1.4gb
-    r"\b(filmhouse|telefilm|stream)\b",
+    r"\b(iq|iqiyi)\b",  # iQIYI streaming platform tag
+    r"\b(fil|filmh|filmhouse|telefilm|stream)\b",
     r"\b(film|movie|full movie)\b",  # Trailing descriptor words
     r"\[.*?\]",  # Bracketed group names like [TGx]
     r"\(.*?\b(1080p|720p|bluray|web)\b.*?\)",
@@ -165,6 +166,12 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
     else:
         # Title Case formatting for presentation
         clean_title = " ".join([word.capitalize() for word in clean_title.split()])
+
+        # Common short aliases
+        if clean_title.lower() == "bel" and is_series:
+            clean_title = "Bel-Air"
+        elif clean_title.lower() == "matchbox the":
+            clean_title = "Matchbox"
 
     # 5. Build Human-Readable Display Name
     if is_series:
