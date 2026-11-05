@@ -677,7 +677,21 @@ async def handle_api_media(request: web.Request) -> web.Response:
     for r in records:
         mid = r["message_id"]
         fn = r.get("file_name", f"video_{mid}.mp4")
+        stored_parsed = r.get("parsed") or {}
+
+        # 1. Parse from filename using our smart parser
         parsed = parse_filename(fn)
+
+        # 2. If the user or bot set a specific custom title / season, preserve it!
+        if stored_parsed.get("title") and not stored_parsed["title"].lower().startswith("episode "):
+            parsed["title"] = stored_parsed["title"]
+        if stored_parsed.get("season"):
+            parsed["season"] = stored_parsed["season"]
+        if stored_parsed.get("episode"):
+            parsed["episode"] = stored_parsed["episode"]
+        if stored_parsed.get("is_series") is not None:
+            parsed["is_series"] = stored_parsed["is_series"]
+
         if parsed.get("is_series"):
             s_str = f"S{parsed['season']:02d}" if parsed.get("season") else "S01"
             e_str = f"E{parsed['episode']:02d}" if parsed.get("episode") else "E01"

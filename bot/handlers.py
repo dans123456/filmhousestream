@@ -89,12 +89,16 @@ async def flush_batch(client: Client, user_id: int):
             f"❓ **Series Title Needed!**\n\n"
             f"Received **{len(items)} episodes** ({sample_names}), but they don't have a series name.\n\n"
             f"💬 **Please reply to this message with the Series & Season name:**\n"
-            f"*(Example: `Teach You A Lesson S1` or `Squid Game Season 2`)*"
+            f"*(Example: `Teach You A Lesson S1` or `Squid Game Season 2`)*\n\n"
+            f"*(Or tap Cancel below to abort)*"
         )
+        cancel_kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("❌ Cancel Batch", callback_data="batch_cancel_now")]
+        ])
         try:
-            await status_msg.edit_text(prompt_text)
+            await status_msg.edit_text(prompt_text, reply_markup=cancel_kb)
         except Exception:
-            await client.send_message(user_id, prompt_text)
+            await client.send_message(user_id, prompt_text, reply_markup=cancel_kb)
         return
 
     # Case 1: Single file forwarded (Movie or 1 Episode)
@@ -175,6 +179,7 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
             pass
 
         processed_links = []
+        last_status_edit = 0.0
         for idx, ep_item in enumerate(ep_items, start=1):
             raw_msg: Message = ep_item["msg"]
             try:
@@ -200,10 +205,12 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
                     "file_name": ep_item["file_name"],
                 })
 
-                # Live progress update every 10 episodes so admin knows it's actively working
-                if idx % 10 == 0 or idx == total_eps:
+                # Throttled live progress update (max once every 3s) so Telegram never rate-limits
+                now = time.time()
+                if (now - last_status_edit >= 3.0) or idx == total_eps:
                     try:
                         await status_msg.edit_text(f"⏳ *Storing & indexing: {idx} / {total_eps} episodes in storage channel...*")
+                        last_status_edit = now
                     except Exception:
                         pass
 
@@ -212,7 +219,7 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
             except Exception as e:
                 logger.error(f"Error forwarding episode {idx}: {e}")
 
-        # 3. BUILD CLEAN COMPACT OUTPUT & CHUNK IF > 40 EPISODES
+        # 3. BUILD CLEAN COMPACT OUTPUT (Option A: Up to 60 links per message)
         first_stream = processed_links[0]["stream_url"] if processed_links else ""
         first_blogger = build_blogspot_url(first_stream, f"{show_title} S{season:02d}E01") if first_stream else config.BLOGGER_URL
         buttons = [
@@ -220,8 +227,8 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
             [InlineKeyboardButton("📱 View Library (All Episodes)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library"))],
         ]
 
-        # Break links into clean message chunks of exactly 20 episodes each
-        chunk_size = 20
+        # Break links into clean message chunks of 60 episodes (Option A: fits 1-60 in 1 unified message!)
+        chunk_size = 60
         total_chunks = (len(processed_links) + chunk_size - 1) // chunk_size
 
         for c_idx in range(total_chunks):
@@ -255,7 +262,8 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
                     await status_msg.edit_text(body_text, reply_markup=reply_markup, disable_web_page_preview=True)
                 else:
                     await client.send_message(user_id, body_text, disable_web_page_preview=True)
-            except Exception:
+            except Exception as send_err:
+                logger.warning(f"Status message edit failed ({send_err}), sending as fresh message.")
                 await client.send_message(user_id, body_text, reply_markup=reply_markup, disable_web_page_preview=True)
 
 
@@ -332,6 +340,22 @@ def register_handlers(app: Client):
             "Browse, search, stream, and manage all your indexed movies and series directly inside Telegram:",
             reply_markup=InlineKeyboardMarkup(buttons)
         )
+
+    @app.on_message(filters.command("cancel") & filters.private)
+    async def cancel_command_handler(client: Client, message: Message):
+        """Cancels any ongoing batch buffer or pending title request immediately."""
+        user_id = message.from_user.id
+        if not is_authorized(user_id):
+            return
+
+        lock = get_user_lock(user_id)
+        async with lock:
+            buf = _batch_buffers.pop(user_id, None)
+            if buf and buf.get("task"):
+                buf["task"].cancel()
+            _pending_title_batches.pop(user_id, None)
+
+        await message.reply_text("🛑 **Current batch cancelled.**\nYou can start fresh whenever you're ready.")
 
     # ==========================================
     # Interactive Callback Handlers
@@ -485,11 +509,32 @@ def register_handlers(app: Client):
         await query.answer("⚡ Processing all collected episodes now!")
         await flush_batch(client, user_id)
 
+    @app.on_callback_query(filters.regex("batch_cancel_now"))
+    async def batch_cancel_now_callback(client: Client, query: CallbackQuery):
+        """Immediately cancels and discards the accumulated batch."""
+        user_id = query.from_user.id
+        if not is_authorized(user_id):
+            await query.answer("⛔ Access Denied.", show_alert=True)
+            return
+
+        lock = get_user_lock(user_id)
+        async with lock:
+            buf = _batch_buffers.pop(user_id, None)
+            if buf and buf.get("task"):
+                buf["task"].cancel()
+            _pending_title_batches.pop(user_id, None)
+
+        await query.answer("❌ Batch cancelled.")
+        try:
+            await query.message.edit_text("🛑 **Batch upload cancelled.**\nForward video files whenever you want to start a new batch.")
+        except Exception:
+            pass
+
     # ==========================================
     # Option B: Title Reply Listener for Nameless Batches
     # ==========================================
 
-    @app.on_message(filters.text & filters.private & ~filters.command(["start", "menu", "help", "status", "clear_bin", "library", "app"]))
+    @app.on_message(filters.text & filters.private & ~filters.command(["start", "menu", "help", "status", "clear_bin", "library", "app", "cancel"]))
     async def title_reply_handler(client: Client, message: Message):
         user_id = message.from_user.id
         if not is_authorized(user_id):
@@ -571,7 +616,8 @@ def register_handlers(app: Client):
                 count = len(_batch_buffers[user_id]["items"])
 
                 btn = InlineKeyboardMarkup([
-                    [InlineKeyboardButton(f"⚡ Finish & Process All {count} Episodes Now", callback_data="batch_flush_now")]
+                    [InlineKeyboardButton(f"⚡ Finish & Process All {count} Episodes Now", callback_data="batch_flush_now")],
+                    [InlineKeyboardButton("❌ Cancel Batch", callback_data="batch_cancel_now")],
                 ])
 
                 if count > 1:

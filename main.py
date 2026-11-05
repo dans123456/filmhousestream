@@ -41,6 +41,7 @@ async def main():
             BotCommand("help", "How to forward and stream"),
             BotCommand("status", "Server & stream health"),
             BotCommand("clear_bin", "Storage channel maintenance"),
+            BotCommand("cancel", "Cancel current batch/task"),
         ])
         logger.info("Registered Telegram Bot Menu commands.")
     except Exception as e:

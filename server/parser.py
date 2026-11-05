@@ -4,11 +4,13 @@ from typing import Dict, Any, Optional
 # Common garbage tags to strip from titles
 CLEANUP_TAGS = [
     r"\b(2160p|4k|1080p|720p|480p|360p)\b",
-    r"\b(bluray|blu-ray|web-dl|webrip|hdrip|hdtv|dvdrip|brrip|camrip)\b",
+    r"\b(bluray|blu-ray|web-dl|webrip|hdrip|hdtv|dvdrip|brrip|camrip|web)\b",
     r"\b(x264|x265|h264|h265|hevc|avc|10bit|8bit)\b",
-    r"\b(aac|ac3|dts|eac3|mp3|flac|ddp5\.1|dd5\.1|5\.1ch)\b",
+    r"\b(aac|ac3|dts|dtshd|eac3|mp3|flac|ddp5\.1|dd5\.1|truehd|atmos)\b",
+    r"\b(2ch|2\.0ch|2\.1ch|5\.1ch|6ch|8ch|stereo|mono|ch)\b",
     r"\b(yts|rarbg|psa|pahe|galaxytv|galaxyrg|tgx|cinevood|katmoviehd|mkvcinemas|nk)\b",
-    r"\b(esub|esubs|multisubs|multi-sub|dual audio|hindi|english|org)\b",
+    r"\b(esub|esubs|multisubs|multi-sub|multi audio|dual audio|hindi|english|eng|fi|fin|kor|jap|mandarin|org)\b",
+    r"\b(repack|proper|remastered|extended|unrated|imax)\b",
     r"\b\d+(\.\d+)?\s*(mb|gb)\b",  # File sizes like 800mb, 1.4gb
     r"\b(filmhouse|telefilm|stream)\b",
     r"\[.*?\]",  # Bracketed group names like [TGx]
@@ -90,11 +92,26 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             for tag_pattern in CLEANUP_TAGS + [r"\bfilmhouse\b"]:
                 after_text = re.sub(tag_pattern, "", after_text, flags=re.IGNORECASE)
             after_text = re.sub(r"\s+", " ", after_text).strip(" -_")
-            if after_text:
-                episode_title = " ".join([w.capitalize() for w in after_text.split()])
 
-            # Cut title before the season/episode marker
-            working_name = name[:m.start()].replace(".", " ").replace("_", " ")
+            # Extract title before the season/episode marker
+            before_text = name[:m.start()].replace(".", " ").replace("_", " ")
+            for tag_pattern in CLEANUP_TAGS + [r"\bfilmhouse\b"]:
+                before_text = re.sub(tag_pattern, "", before_text, flags=re.IGNORECASE)
+            before_text = re.sub(r"\s+", " ", before_text).strip(" -_")
+
+            # CRITICAL FIX for "Episode 1 - Show Name" filenames:
+            # If before_text is empty or bare (e.g. filename was "Episode 1 - Never Ending Summer"):
+            # The real series title is in after_text!
+            if (not before_text or BARE_EPISODE_REGEX.match(before_text)) and after_text:
+                working_name = after_text
+                episode_title = None
+            else:
+                working_name = before_text
+                # Discard after_text if too short (<= 3 chars, e.g. "Fi", "Eng", "2ch") or purely numbers/acronyms
+                if after_text and len(after_text) > 3 and not re.match(r"^[\d\s\-_]+$", after_text):
+                    episode_title = " ".join([w.capitalize() for w in after_text.split()])
+                else:
+                    episode_title = None
             break
 
     # 3. Detect Year
