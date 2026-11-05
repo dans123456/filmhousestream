@@ -154,8 +154,104 @@ async def flush_batch(client: Client, user_id: int):
             await status_msg.edit_text(f"❌ Error indexing file: `{str(e)}`")
         return
 
-    # Case 2: Multiple files forwarded (Series Batch)
+    # Case 2: Check if ALL items in the batch are non-series Movies
+    all_movies = all(not item["parsed"].get("is_series") for item in items)
+    if all_movies:
+        await process_movies_batch(client, user_id, items, status_msg)
+        return
+
+    # Case 3: Multiple files forwarded (Series Batch)
     await process_series_batch(client, user_id, items, status_msg)
+
+
+async def process_movies_batch(client: Client, user_id: int, items: list, status_msg: Message):
+    """
+    Handles batches where all items are non-series Movies.
+    Groups identical movies into Multi-Quality packages (e.g. 1080p + 720p).
+    """
+    movie_groups: dict[tuple, list] = {}
+    for item in items:
+        p = item["parsed"]
+        key = (p["title"], p.get("year"))
+        if key not in movie_groups:
+            movie_groups[key] = []
+        movie_groups[key].append(item)
+
+    total_files = len(items)
+    try:
+        await status_msg.edit_text(f"⏳ *Processing and storing {total_files} movie file(s)...*")
+    except Exception:
+        pass
+
+    quality_ranks = {"4k": 4, "2160p": 4, "1080p": 3, "720p": 2, "480p": 1, "360p": 0}
+
+    for (movie_title, year), m_items in movie_groups.items():
+        # Sort highest quality first (4K -> 1080p -> 720p)
+        m_items.sort(
+            key=lambda x: quality_ranks.get((x["parsed"].get("quality") or "").lower(), 0),
+            reverse=True
+        )
+
+        processed_versions = []
+        for it in m_items:
+            raw_msg: Message = it["msg"]
+            try:
+                forwarded = await raw_msg.copy(config.BIN_CHANNEL_ID)
+                record_indexed_file(
+                    forwarded.id,
+                    it["file_name"],
+                    parsed=it["parsed"],
+                    file_size_str=it["file_size_str"]
+                )
+                token = generate_stream_token(forwarded.id)
+                stream_url = f"{config.SERVER_URL}/dl/{token}"
+                blogger_url = build_blogspot_url(stream_url, movie_title)
+                processed_versions.append({
+                    "quality": it["parsed"].get("quality") or "HD",
+                    "file_name": it["file_name"],
+                    "file_size_str": it["file_size_str"],
+                    "stream_url": stream_url,
+                    "token": token,
+                    "blogger_url": blogger_url,
+                })
+                await asyncio.sleep(0.3)
+            except Exception as e:
+                logger.error(f"Error forwarding movie {it['file_name']}: {e}")
+
+        if not processed_versions:
+            continue
+
+        year_str = f" ({year})" if year else ""
+        top_version = processed_versions[0]
+        buttons = [
+            [InlineKeyboardButton("🍿 Test on Blogspot", url=top_version["blogger_url"])],
+            [InlineKeyboardButton("📱 View in Library (WebApp)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library"))],
+            [InlineKeyboardButton("⬇️ Direct Stream Link", url=top_version["stream_url"])],
+        ]
+
+        if len(processed_versions) > 1:
+            qual_tags = " • ".join([v["quality"] for v in processed_versions])
+            text = (
+                f"🎬 **{movie_title}{year_str}**\n"
+                f"✨ **{len(processed_versions)} Qualities Available ({qual_tags})**\n\n"
+                f"📋 **Stream Links for FilmHouse Cinema:**\n\n"
+            )
+            for v in processed_versions:
+                sz = f" ({v['file_size_str']})" if v.get("file_size_str") else ""
+                text += f"• **{v['quality']}**{sz}:\n  `{v['stream_url']}`\n\n"
+        else:
+            v = processed_versions[0]
+            text = (
+                f"🎬 **{movie_title}{year_str} [{v['quality']}]**\n\n"
+                f"📁 `{v['file_name']}` ({v['file_size_str']})\n\n"
+                f"🔗 **Stream URL (FilmHouse):**\n`{v['stream_url']}`\n\n"
+                f"🔑 **Token:**\n`{v['token']}`"
+            )
+
+        try:
+            await status_msg.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
+        except Exception:
+            await client.send_message(user_id, text, reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
 
 
 async def process_series_batch(client: Client, user_id: int, items: list, status_msg: Message):

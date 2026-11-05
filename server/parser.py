@@ -3,16 +3,20 @@ from typing import Dict, Any, Optional
 
 # Common garbage tags to strip from titles
 CLEANUP_TAGS = [
+    r"@[\w\d_\-\.]+",  # Telegram handles like @pharaohsofm
     r"\b(2160p|4k|1080p|720p|480p|360p)\b",
     r"\b(bluray|blu-ray|web-dl|webrip|hdrip|hdtv|dvdrip|brrip|camrip|web)\b",
     r"\b(x264|x265|h264|h265|hevc|avc|10bit|8bit)\b",
     r"\b(aac|ac3|dts|dtshd|eac3|mp3|flac|ddp5\.1|dd5\.1|truehd|atmos)\b",
     r"\b(2ch|2\.0ch|2\.1ch|5\.1ch|6ch|8ch|stereo|mono|ch)\b",
+    r"\b(dd5[\.\s]?1|ddp5[\.\s]?1|dd\+?5[\.\s]?1|dts[\.\s]?hd)\b",
+    r"\b(nf|amzn|dsnp|dplus|hulu|atvp|max|stan|zee5|hotstar)\b",  # Streamer tags
     r"\b(yts|rarbg|psa|pahe|galaxytv|galaxyrg|tgx|cinevood|katmoviehd|mkvcinemas|nk)\b",
     r"\b(esub|esubs|multisubs|multi-sub|multi audio|dual audio|hindi|english|eng|fi|fin|kor|jap|mandarin|org)\b",
     r"\b(repack|proper|remastered|extended|unrated|imax)\b",
     r"\b\d+(\.\d+)?\s*(mb|gb)\b",  # File sizes like 800mb, 1.4gb
     r"\b(filmhouse|telefilm|stream)\b",
+    r"\b(film|movie|full movie)\b",  # Trailing descriptor words
     r"\[.*?\]",  # Bracketed group names like [TGx]
     r"\(.*?\b(1080p|720p|bluray|web)\b.*?\)",
 ]
@@ -21,6 +25,8 @@ CLEANUP_TAGS = [
 SERIES_PATTERNS = [
     # S01E02, S1E2, s01e02, S01.E02, S01 - E02
     re.compile(r"[sS](?P<season>\d{1,2})[\s\.\-_]*[eE](?P<episode>\d{1,3})"),
+    # S1 - 01, S01 - 02, S1 01, S1 - 1, S01.01 (e.g. Archive 81 S1 - 01)
+    re.compile(r"\b[sS](?P<season>\d{1,2})[\s\.\-_]+(?P<episode>\d{1,3})\b"),
     # 1x02, 01x02
     re.compile(r"(?P<season>\d{1,2})[xX](?P<episode>\d{1,3})"),
     # Season 1 Episode 2, Season 01 Ep 2
@@ -119,13 +125,26 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
     year_match = YEAR_PATTERN.search(working_name)
     if year_match:
         year = int(year_match.group(1))
-        # Remove year from working name to prevent duplicate title display
-        working_name = re.sub(rf"\b{year}\b", "", working_name)
+        # For movies (non-series): The clean title is everything before the release year
+        if not is_series:
+            before_year = working_name[:year_match.start()].strip(" -_()[]")
+            if before_year and len(before_year) >= 2:
+                working_name = before_year
+            else:
+                working_name = re.sub(rf"\b{year}\b", "", working_name)
+        else:
+            working_name = re.sub(rf"\b{year}\b", "", working_name)
 
     # 4. Clean up Title
     clean_title = working_name
     for tag_pattern in CLEANUP_TAGS + [r"\bfilmhouse\b"]:
         clean_title = re.sub(tag_pattern, "", clean_title, flags=re.IGNORECASE)
+
+    # Strip empty parentheses and brackets: e.g. "()", "[]"
+    clean_title = re.sub(r"\(\s*\)|\[\s*\]", "", clean_title)
+
+    # Strip trailing scene release group names (e.g. "-PlayfulDarkness", "-Galaxy", "-eng")
+    clean_title = re.sub(r"\s*-\s*[\w\d]{2,}$", "", clean_title)
 
     clean_title = re.sub(r"\s+", " ", clean_title).strip(" -_")
 

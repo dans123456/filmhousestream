@@ -50,24 +50,21 @@ def fix_database():
         # Re-parse using the new parser
         new_parsed = parse_filename(file_name)
 
-        # Check if the title was corrupted into "Episode X"
-        was_corrupted_title = bool(re.match(r"^Episode\s+\d+$", old_title, re.IGNORECASE))
-        # Check if episode title was corrupted into garbage like "2ch Fi"
-        was_garbage_ep_title = bool(old_ep_title and re.search(r"\b(2ch|ch|fi|sub|subs)\b", old_ep_title, re.IGNORECASE))
+        # Check if new parse changes title, is_series, season, episode, or cleaned episode_title
+        diff_title = (new_parsed.get("title") != old_title)
+        diff_series = (new_parsed.get("is_series") != stored_parsed.get("is_series"))
+        diff_ep = (new_parsed.get("episode_title") != old_ep_title)
+        diff_season = (new_parsed.get("season") != stored_parsed.get("season"))
 
-        needs_update = False
-
-        if was_corrupted_title and new_parsed.get("title") and not re.match(r"^Episode\s+\d+$", new_parsed["title"], re.IGNORECASE):
-            print(f"[REPAIRED TITLE] ID {item.get('message_id')}: '{old_title}' -> '{new_parsed['title']}'")
-            needs_update = True
-
-        if was_garbage_ep_title and new_parsed.get("episode_title") != old_ep_title:
-            print(f"[CLEANED EP TITLE] ID {item.get('message_id')}: '{old_ep_title}' -> '{new_parsed.get('episode_title')}'")
-            needs_update = True
-
-        if needs_update or not stored_parsed:
+        if diff_title or diff_series or diff_ep or diff_season or not stored_parsed:
             item["parsed"] = new_parsed
             fixed_count += 1
+            if diff_series:
+                print(f"[RECLASSIFIED SERIES] ID {item.get('message_id')}: '{file_name}' -> Series: {new_parsed['title']} S{new_parsed.get('season')}E{new_parsed.get('episode')}")
+            elif diff_title:
+                print(f"[CLEANED TITLE] ID {item.get('message_id')}: '{old_title}' -> '{new_parsed['title']}'")
+            elif diff_ep:
+                print(f"[CLEANED EP TITLE] ID {item.get('message_id')}: '{old_ep_title}' -> '{new_parsed.get('episode_title')}'")
 
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(records, f, indent=2, ensure_ascii=False)
