@@ -168,10 +168,19 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
         clean_title = " ".join([word.capitalize() for word in clean_title.split()])
 
         # Common short aliases
-        if clean_title.lower() == "bel" and is_series:
+        lower_t = clean_title.lower()
+        if lower_t == "bel" and is_series:
             clean_title = "Bel-Air"
-        elif clean_title.lower() == "matchbox the":
+        elif lower_t in ("matchbox the", "the matchbox"):
             clean_title = "Matchbox"
+        elif lower_t == "girls raised in the south":
+            clean_title = "GRITS"
+        elif lower_t == "hard matter":
+            clean_title = "Kill Code"
+        elif lower_t.startswith("nymphomaniac") and ("2" in lower_t or "ii" in lower_t):
+            clean_title = "Nymphomaniac: Vol. II"
+        elif lower_t in ("its okay", "it's okay"):
+            clean_title = "It's Okay!"
 
     # 5. Build Human-Readable Display Name
     if is_series:
