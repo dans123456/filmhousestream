@@ -1086,7 +1086,9 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       }
     }
 
-    async function deleteMedia(messageId, title) {
+    async function deleteMedia(messageId, optionalTitle) {
+      const item = allMedia.find(m => m.message_id === messageId);
+      const title = optionalTitle || (item && (item.display_name || item.file_name)) || 'this media';
       if (!confirm(`Delete "${title}" from your storage channel permanently?`)) return;
       try {
         const res = await fetch('/api/media/delete', {
@@ -1118,17 +1120,48 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         .replace(/>/g, '&gt;');
     }
 
-    // Track expanded folders, seasons, and active season per series
-    const expandedFolders = new Set();
-    const expandedSeasons = new Set(); // "SeriesTitle_S1"
+    // Safe Canonical Key Generator (strips punctuation and apostrophes so keys never break HTML attributes)
+    function getCanonicalSeriesKey(rawTitle) {
+      if (!rawTitle) return '';
+      let norm = String(rawTitle).toLowerCase().replace(/['’`]/g, '');
+      norm = norm.replace(/&/g, ' and ');
+      norm = norm.replace(/[^a-z0-9\s]/g, ' ');
+      return norm.trim().replace(/\s+/g, '_');
+    }
 
-    function toggleFolder(seriesKey) {
-      if (expandedFolders.has(seriesKey)) {
-        expandedFolders.delete(seriesKey);
+    // Track expanded folders and seasons using safe canonical keys
+    const expandedFolders = new Set();
+    const expandedSeasons = new Set();
+    window.seasonDataMap = {};
+
+    function toggleFolder(key) {
+      if (expandedFolders.has(key)) {
+        expandedFolders.delete(key);
       } else {
-        expandedFolders.add(seriesKey);
+        // Clear any prefix/suffix variants of this key to keep set clean
+        for (const exp of Array.from(expandedFolders)) {
+          const shorter = exp.length < key.length ? exp : key;
+          const longer = exp.length < key.length ? key : exp;
+          if (shorter.length >= 8 && longer.startsWith(shorter + '_')) {
+            expandedFolders.delete(exp);
+          }
+        }
+        expandedFolders.add(key);
       }
       renderMedia();
+    }
+
+    function isFolderExpanded(groupKey, query) {
+      if (query) return true;
+      if (expandedFolders.has(groupKey)) return true;
+      for (const exp of expandedFolders) {
+        const shorter = exp.length < groupKey.length ? exp : groupKey;
+        const longer = exp.length < groupKey.length ? groupKey : exp;
+        if (shorter.length >= 8 && longer.startsWith(shorter + '_')) {
+          return true;
+        }
+      }
+      return false;
     }
 
     function toggleSeason(event, seasonKey) {
@@ -1141,12 +1174,18 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       renderMedia();
     }
 
-    function copyAllSeasonLinks(event, seriesTitle, seasonNum, eps) {
-      event.stopPropagation();
+    function isSeasonExpanded(seasonKey, seasonCount, query) {
+      if (query || seasonCount === 1) return true;
+      return expandedSeasons.has(seasonKey);
+    }
+
+    function copyAllSeasonLinks(event, seasonKey, seasonNum) {
+      if (event) event.stopPropagation();
+      const eps = (window.seasonDataMap && window.seasonDataMap[seasonKey]) || [];
       if (!eps || eps.length === 0) return;
       const text = eps.map(e => `• Ep ${e.episode || 1}: ${e.stream_url}`).join('\n');
       copyToClipboard(text);
-      showToast(`📋 Copied all ${eps.length} links for S${seasonNum}!`);
+      showToast(`📋 Copied all ${eps.length} links for Season ${seasonNum}!`);
     }
 
     function renderMedia() {
@@ -1167,27 +1206,51 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         return;
       }
 
-      // Group series into folder cards
-      const seriesGroups = {}; // key -> { title, seasons: { 1: [episodes], 2: [...] }, allEpisodes: [] }
+      // 1. Group series into folder cards using canonical keys and prefix coalescing
+      const seriesGroupList = [];
       const standaloneItems = [];
 
       filtered.forEach(item => {
         if (item.is_series && item.series_title) {
-          const sTitle = item.series_title;
-          if (!seriesGroups[sTitle]) {
-            seriesGroups[sTitle] = {
-              title: sTitle,
+          const rawTitle = item.series_title;
+          const normKey = getCanonicalSeriesKey(rawTitle);
+          if (!normKey) return;
+
+          let matchGroup = seriesGroupList.find(g => {
+            if (g.canonicalKey === normKey) return true;
+            const shorter = g.canonicalKey.length < normKey.length ? g.canonicalKey : normKey;
+            const longer = g.canonicalKey.length < normKey.length ? normKey : g.canonicalKey;
+            if (shorter.length >= 8 && longer.startsWith(shorter + '_')) {
+              return true;
+            }
+            return false;
+          });
+
+          if (!matchGroup) {
+            matchGroup = {
+              canonicalKey: normKey,
+              title: rawTitle,
               seasons: {},
               allEpisodes: [],
               quality: item.quality || 'HD',
             };
+            seriesGroupList.push(matchGroup);
+          } else {
+            // Adopt longer, more descriptive title (e.g. "Georgie And Mandys First Marriage" > "Georgie And Mandy's")
+            if (rawTitle.length > matchGroup.title.length) {
+              matchGroup.title = rawTitle;
+              matchGroup.canonicalKey = normKey;
+            }
           }
+
           const sNum = item.season || 1;
-          if (!seriesGroups[sTitle].seasons[sNum]) {
-            seriesGroups[sTitle].seasons[sNum] = [];
+          if (!matchGroup.seasons[sNum]) {
+            matchGroup.seasons[sNum] = [];
           }
-          seriesGroups[sTitle].seasons[sNum].push(item);
-          seriesGroups[sTitle].allEpisodes.push(item);
+          if (!matchGroup.seasons[sNum].some(ep => ep.message_id === item.message_id)) {
+            matchGroup.seasons[sNum].push(item);
+            matchGroup.allEpisodes.push(item);
+          }
         } else {
           standaloneItems.push(item);
         }
@@ -1196,19 +1259,18 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       let html = '';
 
       // 1. Render Series Folders with Collapsible Season Subfolders
-      Object.keys(seriesGroups).sort().forEach(sTitle => {
-        const group = seriesGroups[sTitle];
+      seriesGroupList.sort((a, b) => a.title.localeCompare(b.title)).forEach(group => {
         const seasonKeys = Object.keys(group.seasons).map(Number).sort((a, b) => a - b);
-        const isExpanded = expandedFolders.has(sTitle) || Boolean(query); // auto-expand on search
+        const isExpanded = isFolderExpanded(group.canonicalKey, query);
         const totalEpCount = group.allEpisodes.length;
 
         html += `
         <div class="series-folder-card">
-          <div class="folder-header" onclick="toggleFolder('${escapeHtml(sTitle)}')">
+          <div class="folder-header" onclick="toggleFolder('${group.canonicalKey}')">
             <div class="folder-title-box">
               <div class="folder-icon">📺</div>
               <div class="folder-info">
-                <div class="folder-name">${escapeHtml(sTitle)}</div>
+                <div class="folder-name">${escapeHtml(group.title)}</div>
                 <div class="folder-meta">
                   <span>${seasonKeys.length} Season${seasonKeys.length > 1 ? 's' : ''}</span> • 
                   <span>${totalEpCount} Episode${totalEpCount > 1 ? 's' : ''}</span>
@@ -1224,13 +1286,14 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           ${isExpanded ? `
             <div class="season-subfolders-container">
               ${seasonKeys.map(sNum => {
-                const seasonId = `${sTitle}_S${sNum}`;
-                const isSeasonOpen = expandedSeasons.has(seasonId) || seasonKeys.length === 1 || Boolean(query);
+                const seasonKey = `${group.canonicalKey}__s${sNum}`;
+                const isSeasonOpen = isSeasonExpanded(seasonKey, seasonKeys.length, query);
                 const seasonEpisodes = (group.seasons[sNum] || []).sort((a, b) => (a.episode || 0) - (b.episode || 0));
+                window.seasonDataMap[seasonKey] = seasonEpisodes;
 
                 return `
                 <div class="season-subfolder-box">
-                  <div class="season-subfolder-header" onclick="toggleSeason(event, '${escapeHtml(seasonId)}')">
+                  <div class="season-subfolder-header" onclick="toggleSeason(event, '${seasonKey}')">
                     <div style="display:flex; align-items:center; gap:8px;">
                       <span style="font-size:1.1rem;">📂</span>
                       <span class="season-subfolder-title">Season ${sNum}</span>
@@ -1261,7 +1324,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
                               <a href="${ep.watch_url}" onclick="openWithAd(event, '${ep.watch_url}')" class="btn btn-watch" style="min-height:34px; font-size:0.75rem;">▶ Play</a>
                               <a href="${ep.blogger_url}" onclick="openWithAd(event, '${ep.blogger_url}')" class="btn btn-blogger" style="min-height:34px; font-size:0.75rem;">🍿 Blogspot</a>
                               <button onclick="copyToClipboard('${ep.stream_url}')" class="btn btn-copy" style="min-height:34px; font-size:0.75rem;">📋 Link</button>
-                              <button onclick="deleteMedia(${ep.message_id}, '${escapeHtml(ep.display_name)}')" class="btn btn-del" style="min-height:34px;" title="Delete">🗑️</button>
+                              <button onclick="deleteMedia(${ep.message_id})" class="btn btn-del" style="min-height:34px;" title="Delete">🗑️</button>
                             </div>
                           </div>
                         </div>
@@ -1270,7 +1333,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
                     </div>
 
                     <div class="folder-admin-bar" style="margin: 0 10px 10px 10px;">
-                      <button class="btn-folder-all" onclick='copyAllSeasonLinks(event, "${escapeHtml(sTitle)}", ${sNum}, ${JSON.stringify(seasonEpisodes)})'>
+                      <button class="btn-folder-all" onclick="copyAllSeasonLinks(event, '${seasonKey}', ${sNum})">
                         📋 Copy All Season ${sNum} Links (${seasonEpisodes.length})
                       </button>
                     </div>
@@ -1334,7 +1397,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
               </div>
               <div class="action-row">
                 <button onclick="copyToClipboard('${item.stream_url}')" class="btn btn-copy">📋 Copy Stream Link</button>
-                <button onclick="deleteMedia(${item.message_id}, '${escapeHtml(item.display_name)}')" class="btn btn-del" title="Delete from Storage">🗑️</button>
+                <button onclick="deleteMedia(${item.message_id})" class="btn btn-del" title="Delete from Storage">🗑️</button>
               </div>
             </div>
           </div>
@@ -1370,7 +1433,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
                     <a href="${v.watch_url}" onclick="openWithAd(event, '${v.watch_url}')" class="btn btn-watch" style="min-height:30px; font-size:0.75rem; padding:4px 8px;">▶ Play</a>
                     <a href="${v.blogger_url}" onclick="openWithAd(event, '${v.blogger_url}')" class="btn btn-blogger" style="min-height:30px; font-size:0.75rem; padding:4px 8px;">🍿 Blogspot</a>
                     <button onclick="copyToClipboard('${v.stream_url}')" class="btn btn-copy" style="min-height:30px; font-size:0.75rem; padding:4px 8px;">📋 Link</button>
-                    <button onclick="deleteMedia(${v.message_id}, '${escapeHtml(v.display_name)}')" class="btn btn-del" style="min-height:30px; padding:4px 8px;" title="Delete">🗑️</button>
+                    <button onclick="deleteMedia(${v.message_id})" class="btn btn-del" style="min-height:30px; padding:4px 8px;" title="Delete">🗑️</button>
                   </div>
                 </div>
                 `;

@@ -182,6 +182,20 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
         elif lower_t in ("its okay", "it's okay"):
             clean_title = "It's Okay!"
 
+        # Canonical Series Normalization (unifies truncated titles and missing apostrophes)
+        norm_t = re.sub(r"['’`]", "", lower_t)
+        norm_t = re.sub(r"&", "and", norm_t)
+        norm_t = re.sub(r"\s+", " ", norm_t).strip()
+
+        if norm_t.startswith("georgie and mandy"):
+            clean_title = "Georgie & Mandy's First Marriage"
+        elif norm_t.startswith("tyler perry") and "ruthless" in norm_t:
+            clean_title = "Tyler Perry's Ruthless"
+        elif norm_t.startswith("tyler perry") and "sista" in norm_t:
+            clean_title = "Tyler Perry's Sistas"
+        elif norm_t.startswith("tyler perry") and "oval" in norm_t:
+            clean_title = "Tyler Perry's The Oval"
+
     # 5. Build Human-Readable Display Name
     if is_series:
         s_str = f"S{season:02d}" if season else "S01"
