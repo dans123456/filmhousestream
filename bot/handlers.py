@@ -388,13 +388,21 @@ def register_handlers(app: Client):
         if not is_authorized(message.from_user.id):
             return
         help_text = (
-            "ℹ️ **How to Use FilmHouse Stream Bot:**\n\n"
-            "1. **For Movies:** Forward 1 movie file $\\rightarrow$ receive direct stream link $\\rightarrow$ paste into FilmHouse Admin.\n\n"
-            "2. **For TV Series:** Select multiple episodes (e.g. 10 to 50 files) and forward all at once. The bot will:\n"
-            "   - Buffer all incoming episodes.\n"
-            "   - Sort them strictly Ep 1 $\\rightarrow$ Ep 100.\n"
-            "   - Forward into your Bin Channel in exact sequence.\n"
-            "   - Send you an organized list with Episode Titles ready to copy."
+            "🌟 **FilmHouse Stream Bot Master Guide:**\n\n"
+            "🎬 **1. Movies:**\n"
+            "• Forward single movie file $\\rightarrow$ receive instant stream & Blogger links.\n"
+            "• Forward 2 qualities (1080p and 720p) $\\rightarrow$ automatically groups as a **Multi-Quality Movie Card**.\n\n"
+            "📺 **2. TV Series:**\n"
+            "• Select up to 60 episodes and forward all together.\n"
+            "• Bot buffers, numerically sorts strictly Ep 1 $\\rightarrow$ Ep 60.\n"
+            "• Delivers a clean continuous Option A message with all links ready to copy.\n\n"
+            "🌟 **3. Golden Naming Format:**\n"
+            "• Movies: `Movie.Title.Year.1080p.mkv`\n"
+            "• Series: `Series.Title.S01E01.720p.mkv`\n\n"
+            "❌ **4. Cancelling:**\n"
+            "• Send `/cancel` or tap `[❌ Cancel Batch]` anytime to abort a batch.\n\n"
+            "📡 **5. Auto Catalog Matching:**\n"
+            "• Run `/scanlibrary` in your Admin Bot to automatically link all stored files to your website!"
         )
         await message.reply_text(help_text, reply_markup=get_main_menu_keyboard())
 
@@ -485,13 +493,21 @@ def register_handlers(app: Client):
             await query.answer("⛔ Access Denied: Admin authorization required.", show_alert=True)
             return
         help_text = (
-            "ℹ️ **How to Use FilmHouse Stream Bot:**\n\n"
-            "1. **Movies:** Forward any single movie file $\\rightarrow$ receive direct stream link $\\rightarrow$ paste into FilmHouse Admin.\n\n"
-            "2. **TV Series:** Select multiple episodes (e.g. 10 to 50 files) and forward all at once. The bot will:\n"
-            "   - Buffer all incoming episodes.\n"
-            "   - Sort them strictly Ep 1 $\\rightarrow$ Ep 100.\n"
-            "   - Forward into your Bin Channel in exact sequence.\n"
-            "   - Send you an organized list with Episode Titles ready to copy."
+            "🌟 **FilmHouse Stream Bot Master Guide:**\n\n"
+            "🎬 **1. Movies:**\n"
+            "• Forward single movie file $\\rightarrow$ receive instant stream & Blogger links.\n"
+            "• Forward 2 qualities (1080p and 720p) $\\rightarrow$ automatically groups as a **Multi-Quality Movie Card**.\n\n"
+            "📺 **2. TV Series:**\n"
+            "• Select up to 60 episodes and forward all together.\n"
+            "• Bot buffers, numerically sorts strictly Ep 1 $\\rightarrow$ Ep 60.\n"
+            "• Delivers a clean continuous Option A message with all links ready to copy.\n\n"
+            "🌟 **3. Golden Naming Format:**\n"
+            "• Movies: `Movie.Title.Year.1080p.mkv`\n"
+            "• Series: `Series.Title.S01E01.720p.mkv`\n\n"
+            "❌ **4. Cancelling:**\n"
+            "• Send `/cancel` or tap `[❌ Cancel Batch]` anytime to abort a batch.\n\n"
+            "📡 **5. Auto Catalog Matching:**\n"
+            "• Run `/scanlibrary` in your Admin Bot to automatically link all stored files to your website!"
         )
         buttons = [[InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main")]]
         await query.message.edit_text(help_text, reply_markup=InlineKeyboardMarkup(buttons))
