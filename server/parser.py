@@ -24,6 +24,10 @@ CLEANUP_TAGS = [
 
 # Patterns for Season and Episode detection
 SERIES_PATTERNS = [
+    # Multi-episode: S01E01-E02, S01E01-02, S01E01E02, S01E01 - E02
+    re.compile(r"[sS](?P<season>\d{1,2})[\s\.\-_]*[eE](?P<episode>\d{1,3})[\s\.\-_]*(?:-|to|e|E)[\s\.\-_]*(?:[eE])?(?P<end_episode>\d{1,3})"),
+    # 1x01-02, 01x01-02
+    re.compile(r"(?P<season>\d{1,2})[xX](?P<episode>\d{1,3})[\s\.\-_]*(?:-|to)[\s\.\-_]*(?P<end_episode>\d{1,3})"),
     # S01E02, S1E2, s01e02, S01.E02, S01 - E02
     re.compile(r"[sS](?P<season>\d{1,2})[\s\.\-_]*[eE](?P<episode>\d{1,3})"),
     # S1 - 01, S01 - 02, S1 01, S1 - 1, S01.01 (e.g. Archive 81 S1 - 01)
@@ -81,6 +85,7 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
     # 2. Detect Season & Episode
     season = None
     episode = None
+    end_episode = None
     episode_title = None
     is_series = False
 
@@ -95,12 +100,18 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
                 season = 1  # Default to Season 1 if only Episode is mentioned
             if "episode" in groups and groups["episode"]:
                 episode = int(groups["episode"])
+            if "end_episode" in groups and groups["end_episode"]:
+                end_episode = int(groups["end_episode"])
             
             # Extract subtitle / episode name after the SxxExx tag
             after_text = name[m.end():].replace(".", " ").replace("_", " ")
             for tag_pattern in CLEANUP_TAGS + [r"\bfilmhouse\b"]:
                 after_text = re.sub(tag_pattern, "", after_text, flags=re.IGNORECASE)
             after_text = re.sub(r"\s+", " ", after_text).strip(" -_")
+
+            # If multi-episode, strip any remaining secondary episode marker from after_text (e.g. "E02", "-E02", "02")
+            if end_episode:
+                after_text = re.sub(rf"^(?:[\s\.\-_]*(?:e|ep|episode)?[\s\.\-_]*0?{end_episode}\b)", "", after_text, flags=re.IGNORECASE).strip(" -_")
 
             # Extract title before the season/episode marker
             before_text = name[:m.start()].replace(".", " ").replace("_", " ")
@@ -199,7 +210,10 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
     # 5. Build Human-Readable Display Name
     if is_series:
         s_str = f"S{season:02d}" if season else "S01"
-        e_str = f"E{episode:02d}" if episode else "E01"
+        if end_episode:
+            e_str = f"E{episode:02d}-E{end_episode:02d}"
+        else:
+            e_str = f"E{episode:02d}" if episode else "E01"
         ep_sub = f" — {episode_title}" if episode_title else ""
         clean_name = f"{clean_title} {s_str}{e_str}{ep_sub}"
         if quality:
@@ -214,6 +228,7 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
         "title": clean_title,
         "season": season,
         "episode": episode,
+        "end_episode": end_episode,
         "episode_title": episode_title,
         "quality": quality,
         "year": year,

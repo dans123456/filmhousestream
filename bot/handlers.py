@@ -5,6 +5,7 @@ import asyncio
 import logging
 import urllib.parse
 from hydrogram import Client, filters
+from hydrogram.errors import FloodWait
 from hydrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, WebAppInfo
 from server.security import generate_stream_token
 from server.parser import parse_filename
@@ -13,6 +14,22 @@ from bot.storage import record_indexed_file, get_tracked_files, remove_tracked_f
 import config
 
 logger = logging.getLogger("filmhouse.bot")
+
+async def safe_copy_message(raw_msg: Message, target_channel_id, max_retries: int = 5) -> Message:
+    """Copies a message to the target channel with automatic FloodWait retry protection."""
+    for attempt in range(max_retries):
+        try:
+            return await raw_msg.copy(target_channel_id)
+        except FloodWait as fw:
+            wait_time = int(fw.value) + 1
+            logger.warning(f"[FloodWait] Telegram rate limit hit. Sleeping {wait_time}s before retry (attempt {attempt+1}/{max_retries})")
+            await asyncio.sleep(wait_time)
+        except Exception as err:
+            if attempt == max_retries - 1:
+                raise err
+            logger.warning(f"[CopyRetry] Attempt {attempt+1}/{max_retries} failed ({err}), retrying in 1.5s...")
+            await asyncio.sleep(1.5)
+    raise RuntimeError("Failed to copy message after maximum retries.")
 
 # In-memory batch buffers: user_id -> {"items": [...], "task": asyncio.Task, "status_msg": Message}
 _batch_buffers: dict[int, dict] = {}
@@ -111,7 +128,7 @@ async def flush_batch(client: Client, user_id: int):
 
         try:
             # Post copy to bin channel without "Forwarded from" header
-            forwarded = await msg.copy(config.BIN_CHANNEL_ID)
+            forwarded = await safe_copy_message(msg, config.BIN_CHANNEL_ID)
             record_indexed_file(forwarded.id, file_name, parsed=parsed, file_size_str=file_size_str)
             token = generate_stream_token(forwarded.id)
             stream_url = f"{config.SERVER_URL}/dl/{token}"
@@ -196,7 +213,7 @@ async def process_movies_batch(client: Client, user_id: int, items: list, status
         for it in m_items:
             raw_msg: Message = it["msg"]
             try:
-                forwarded = await raw_msg.copy(config.BIN_CHANNEL_ID)
+                forwarded = await safe_copy_message(raw_msg, config.BIN_CHANNEL_ID)
                 record_indexed_file(
                     forwarded.id,
                     it["file_name"],
@@ -279,8 +296,8 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
         for idx, ep_item in enumerate(ep_items, start=1):
             raw_msg: Message = ep_item["msg"]
             try:
-                # Post copy to bin channel without "Forwarded from" header
-                forwarded = await raw_msg.copy(config.BIN_CHANNEL_ID)
+                # Post copy to bin channel without "Forwarded from" header (with auto-FloodWait retry)
+                forwarded = await safe_copy_message(raw_msg, config.BIN_CHANNEL_ID)
                 record_indexed_file(
                     forwarded.id,
                     ep_item["file_name"],
@@ -291,11 +308,13 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
                 stream_url = f"{config.SERVER_URL}/dl/{token}"
 
                 ep_num = ep_item["parsed"]["episode"] or idx
+                end_ep_num = ep_item["parsed"].get("end_episode")
                 ep_title = ep_item["parsed"]["episode_title"]
                 title_label = f" — {ep_title}" if ep_title else ""
 
                 processed_links.append({
                     "ep_num": ep_num,
+                    "end_ep_num": end_ep_num,
                     "title_label": title_label,
                     "stream_url": stream_url,
                     "file_name": ep_item["file_name"],
@@ -310,8 +329,8 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
                     except Exception:
                         pass
 
-                # Small pause to guarantee Telegram timestamp order in channel
-                await asyncio.sleep(0.3)
+                # Pause to guarantee Telegram timestamp order in channel and respect rate limits
+                await asyncio.sleep(0.5)
             except Exception as e:
                 logger.error(f"Error forwarding episode {idx}: {e}")
 
@@ -333,7 +352,7 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
             chunk_eps = processed_links[start_i:end_i]
 
             start_ep_num = chunk_eps[0]["ep_num"]
-            end_ep_num = chunk_eps[-1]["ep_num"]
+            end_ep_num = chunk_eps[-1].get("end_ep_num") or chunk_eps[-1]["ep_num"]
             ep_range = f"Ep {start_ep_num:02d} – {end_ep_num:02d}"
 
             part_label = f" (Part {c_idx + 1}/{total_chunks} • {ep_range})" if total_chunks > 1 else ""
@@ -345,7 +364,10 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
 
             lines = []
             for ep in chunk_eps:
-                ep_tag = f"E{ep['ep_num']:02d}"
+                if ep.get("end_ep_num"):
+                    ep_tag = f"E{ep['ep_num']:02d}-E{ep['end_ep_num']:02d}"
+                else:
+                    ep_tag = f"E{ep['ep_num']:02d}"
                 title_part = f" ({ep['title_label'].lstrip(' — ')})" if ep['title_label'] else ""
                 lines.append(f"`{ep_tag}`{title_part}: `{ep['stream_url']}`\n")
 
