@@ -4,16 +4,19 @@ from typing import Dict, Any, Optional
 # Common garbage tags to strip from titles
 CLEANUP_TAGS = [
     r"@[\w\d_\-\.]+",  # Telegram handles like @pharaohsofm
-    r"\b(2160p|4k|1080p|720p|480p|360p)\b",
-    r"\b(bluray|blu-ray|web-dl|webrip|hdrip|hdtv|dvdrip|brrip|camrip|web)\b",
-    r"\b(x264|x265|h264|h265|hevc|avc|10bit|8bit)\b",
-    r"\b(aac|ac3|dts|dtshd|eac3|mp3|flac|ddp5\.1|dd5\.1|truehd|atmos)\b",
+    r"\b(2160p|4k|1080p|1080i|720p|576p|480p|360p|240p)\b",
+    r"\b(uhd|fhd|hd|sd|hq)\b",
+    r"\b(hd-in|hd_in|hdin|hd-tc|hdtc|hd-cam|hdcam|hd-ts|hdts|hdtv|hdrip)\b",
+    r"\b(bluray|blu-ray|web-dl|webdl|web-rip|webrip|dvdrip|brrip|bdrip|camrip|web|dvd)\b",
+    r"\b(x264|x265|h264|h265|hevc|avc|10bit|8bit|hdr|hdr10|hdr10\+|dovi|dv)\b",
+    r"\b(aac|ac3|dts|dtshd|eac3|mp3|flac|ddp5\.1|dd5\.1|ddp|dd|truehd|atmos)\b",
     r"\b(2ch|2\.0ch|2\.1ch|5\.1ch|6ch|8ch|stereo|mono|ch)\b",
     r"\b(dd5[\.\s]?1|ddp5[\.\s]?1|dd\+?5[\.\s]?1|dts[\.\s]?hd)\b",
     r"\b(nf|amzn|dsnp|dplus|hulu|atvp|max|stan|zee5|hotstar)\b",  # Streamer tags
     r"\b(yts|rarbg|psa|pahe|galaxytv|galaxyrg|tgx|cinevood|katmoviehd|mkvcinemas|nk)\b",
-    r"\b(esub|esubs|multisubs|multi-sub|multi audio|dual audio|dual|hindi|english|eng|fi|fin|kor|jap|mandarin|org)\b",
-    r"\b(repack|proper|remastered|extended|unrated|imax)\b",
+    r"\b(esub|esubs|multisubs|multi-sub|multi audio|dual audio|dual|dubbed|subbed)\b",
+    r"\b(hindi|english|eng|hin|kor|jap|japanese|korean|mandarin|chi|org)\b",
+    r"\b(repack|proper|remastered|extended|unrated|imax|complete|final)\b",
     r"\b\d+(\.\d+)?\s*(mb|gb)\b",  # File sizes like 800mb, 1.4gb
     r"\b(iq|iqiyi)\b",  # iQIYI streaming platform tag
     r"\b(fil|filmh|filmhouse|telefilm|stream)\b",
@@ -21,6 +24,16 @@ CLEANUP_TAGS = [
     r"\[.*?\]",  # Bracketed group names like [TGx]
     r"\(.*?\b(1080p|720p|bluray|web)\b.*?\)",
 ]
+
+# Words that should NEVER be considered episode titles on their own
+GARBAGE_EPISODE_WORDS = {
+    "hd", "in", "hd in", "hd-in", "sd", "hq", "uhd", "fhd", "4k", "720p", "1080p", "480p",
+    "web", "web dl", "webdl", "web rip", "webrip", "bluray", "hdtv", "dvdrip", "brrip",
+    "x264", "x265", "hevc", "h264", "h265", "aac", "ac3", "dts", "ddp", "atmos", "truehd",
+    "hindi", "eng", "english", "dual", "dual audio", "esub", "esubs", "sub", "dub", "dubbed",
+    "filmhouse", "filmh", "stream", "telefilm", "galaxy", "tgx", "psa", "pahe", "rarbg",
+    "2ch", "6ch"
+}
 
 # Patterns for Season and Episode detection
 SERIES_PATTERNS = [
@@ -107,6 +120,8 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             after_text = name[m.end():].replace(".", " ").replace("_", " ")
             for tag_pattern in CLEANUP_TAGS + [r"\bfilmhouse\b"]:
                 after_text = re.sub(tag_pattern, "", after_text, flags=re.IGNORECASE)
+            # Repeatedly strip trailing descriptor words like -hd, -in, etc.
+            after_text = re.sub(r"[\s\.\-_]+(hd|in|sd|hq|uhd|fhd|4k|1080p|720p|480p|x264|x265|hevc|aac|ac3|hindi|eng|esub|tgx|galaxy|filmhouse|filmh)$", "", after_text, flags=re.IGNORECASE)
             after_text = re.sub(r"\s+", " ", after_text).strip(" -_")
 
             # If multi-episode, strip any remaining secondary episode marker from after_text (e.g. "E02", "-E02", "02")
@@ -127,8 +142,16 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
                 episode_title = None
             else:
                 working_name = before_text
-                # Discard after_text if too short (<= 3 chars, e.g. "Fi", "Eng", "2ch") or purely numbers/acronyms
-                if after_text and len(after_text) > 3 and not re.match(r"^[\d\s\-_]+$", after_text):
+                # Check if after_text is pure release junk or empty
+                words = after_text.lower().split()
+                all_garbage = len(words) > 0 and all(w in GARBAGE_EPISODE_WORDS for w in words)
+                if (
+                    after_text
+                    and len(after_text) > 3
+                    and not re.match(r"^[\d\s\-_]+$", after_text)
+                    and not all_garbage
+                    and after_text.lower() not in GARBAGE_EPISODE_WORDS
+                ):
                     episode_title = " ".join([w.capitalize() for w in after_text.split()])
                 else:
                     episode_title = None
@@ -282,12 +305,13 @@ def detect_category(raw_filename: str, clean_title: str, is_series: bool) -> str
             return "kdrama"
 
     # 3. African Cinema & Series (Nollywood / Ghallywood)
+    # Notice: NEVER use 'filmhouse' keyword as it is the bot/channel branding!
     african_patterns = [
-        r"\b(nollywood|ghallywood|african movie|african series|ghana|nigeria|kumawood)\b",
+        r"\b(nollywood|ghallywood|kumawood|african movie|african series)\b",
         r"\b(accra medic|a tribe called judah|jagun jagun|anikulapo|king of boys|the black book)\b",
         r"\b(blood sisters|shanty town|far from home|brotherhood|gangs of lagos|lisabi|breath of life)\b",
         r"\b(olishe|afamefuna|house of ga'a|house of gaa|battle on buka street|wedding party)\b",
-        r"\b(filmhouse|accra)\b",
+        r"\b(accra|ghanaian|nigerian)\b",
     ]
     for pat in african_patterns:
         if re.search(pat, text):
@@ -296,8 +320,7 @@ def detect_category(raw_filename: str, clean_title: str, is_series: bool) -> str
     # 4. Bollywood & Indian Cinema
     bollywood_patterns = [
         r"\b(bollywood|kollywood|tollywood|mollywood|sandalwood)\b",
-        r"\b(hindi|telugu|tamil|malayalam|kannada|punjabi)\b",
-        r"\b(stree|animal|jawan|pathaan|dangal|rrr|kgf|pushpa|bahubali|salaar|kalki|devara|fighter|shaitaan)\b",
+        r"\b(stree 2|stree|jawan|pathaan|dangal|rrr|kgf|pushpa|bahubali|salaar|kalki 2898|kalki|devara|shaitaan)\b",
     ]
     for pat in bollywood_patterns:
         if re.search(pat, text):

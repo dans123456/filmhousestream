@@ -708,12 +708,10 @@ async def handle_api_media(request: web.Request) -> web.Response:
         encoded_title = urllib.parse.quote(parsed.get("title", fn), safe="")
         blogger_url = f"{config.BLOGGER_URL}/?watch={encoded_stream}&title={encoded_title}"
 
-        category = (
-            r.get("category")
-            or stored_parsed.get("category")
-            or parsed.get("category")
-            or ("series" if parsed.get("is_series") else "movies")
-        )
+        category = r.get("category")
+        # Self-healing fallback: If category was legacy or miscategorized as 'african' because of filmhouse branding tag, fix to parsed category
+        if not category or (category == "african" and "filmhouse" in fn.lower() and not any(k in fn.lower() for k in ["accra", "nollywood", "ghallywood"])):
+            category = parsed.get("category") or ("series" if parsed.get("is_series") else "movies")
 
         items.append({
             "message_id": mid,

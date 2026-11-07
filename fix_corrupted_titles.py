@@ -82,6 +82,7 @@ def fix_database():
         # Update to Golden standard
         item["file_name"] = golden_filename
         item["parsed"] = new_parsed
+        item["category"] = new_parsed.get("category", "movies" if not new_parsed.get("is_series") else "series")
         fixed_count += 1
 
         print(f"[GOLDEN CONVERT] ID {item.get('message_id')}:")
