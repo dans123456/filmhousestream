@@ -484,20 +484,22 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
     .card-actions {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 6px;
       width: 100%;
       margin-top: 2px;
+      box-sizing: border-box;
     }
     .action-row {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       width: 100%;
+      box-sizing: border-box;
     }
     .btn {
-      min-height: 38px;
-      padding: 8px 12px;
+      min-height: 36px;
+      padding: 6px 10px;
       border-radius: 10px;
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       font-weight: 600;
       text-decoration: none;
       cursor: pointer;
@@ -508,6 +510,8 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       border: 1px solid rgba(255, 255, 255, 0.1);
       transition: all 0.15s ease;
       user-select: none;
+      box-sizing: border-box;
+      white-space: nowrap;
     }
     .btn:active {
       transform: scale(0.97);
@@ -534,16 +538,22 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       border-color: rgba(255, 255, 255, 0.1);
     }
     .btn-del {
-      width: 40px;
-      flex-shrink: 0;
+      width: 38px;
+      flex: 0 0 38px;
       background: rgba(239, 68, 68, 0.12);
       color: #fca5a5;
       border-color: rgba(239, 68, 68, 0.25);
       padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      border-radius: 8px;
+      transition: all 0.2s;
     }
     .btn-edit {
-      width: 40px;
-      flex-shrink: 0;
+      width: 38px;
+      flex: 0 0 38px;
       background: rgba(99, 102, 241, 0.15);
       color: #a5b4fc;
       border: 1px solid rgba(99, 102, 241, 0.3);
@@ -552,6 +562,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      border-radius: 8px;
       transition: all 0.2s ease;
     }
     .btn-edit:hover {
@@ -764,6 +775,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       display: flex;
       align-items: center;
       gap: 6px;
+      flex-wrap: wrap;
     }
 
     /* Episode Row within Folder */
@@ -772,6 +784,8 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       flex-direction: column;
       gap: 8px;
       margin-top: 4px;
+      box-sizing: border-box;
+      max-width: 100%;
     }
     .episode-row {
       background: rgba(10, 12, 18, 0.85);
@@ -781,12 +795,18 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       display: flex;
       flex-direction: column;
       gap: 8px;
+      box-sizing: border-box;
+      max-width: 100%;
+      overflow: hidden;
     }
     .episode-row-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 8px;
+      min-width: 0;
+      width: 100%;
+      box-sizing: border-box;
     }
     .episode-num-badge {
       font-weight: 800;
@@ -995,6 +1015,69 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       font-size: 0.78rem;
       margin-top: 10px;
       display: none;
+    }
+
+    /* Mobile Responsive Optimizations */
+    @media (max-width: 480px) {
+      .container {
+        padding-left: 10px;
+        padding-right: 10px;
+      }
+      .series-folder-card {
+        padding: 12px 10px;
+      }
+      .season-subfolders-container {
+        padding: 6px;
+      }
+      .season-subfolder-box {
+        border-radius: 10px;
+      }
+      .episodes-wrapper {
+        padding: 6px !important;
+        gap: 6px;
+      }
+      .episode-row {
+        padding: 8px 10px;
+        gap: 6px;
+      }
+      .action-row {
+        gap: 5px;
+      }
+      .btn {
+        min-height: 32px;
+        font-size: 0.74rem;
+        padding: 4px 6px;
+      }
+      .btn-del, .btn-edit {
+        width: 36px;
+        flex: 0 0 36px;
+      }
+      .quality-version-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 8px;
+      }
+      .quality-version-info {
+        width: 100%;
+        min-width: 0;
+      }
+      .quality-version-actions {
+        width: 100%;
+        display: flex;
+        gap: 5px;
+      }
+      .quality-version-actions .btn {
+        flex: 1;
+        min-width: 0;
+        padding: 4px 6px;
+        font-size: 0.72rem;
+      }
+      .quality-version-actions .btn-edit,
+      .quality-version-actions .btn-del {
+        flex: 0 0 34px;
+        width: 34px;
+      }
     }
   </style>
 </head>
@@ -1843,11 +1926,13 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
                           </div>
                           <div class="card-actions" style="margin-top:2px;">
                             <div class="action-row">
-                              <a href="${ep.watch_url}" onclick="openWithAd(event, '${ep.watch_url}')" class="btn btn-watch" style="min-height:34px; font-size:0.75rem;">▶ Play</a>
-                              <a href="${ep.blogger_url}" onclick="openWithAd(event, '${ep.blogger_url}')" class="btn btn-blogger" style="min-height:34px; font-size:0.75rem;">🍿 Blogspot</a>
-                              <button onclick="copyToClipboard('${ep.stream_url}')" class="btn btn-copy" style="min-height:34px; font-size:0.75rem;">📋 Link</button>
-                              <button onclick="openEditModal(event, ${ep.message_id})" class="btn btn-edit" style="min-height:34px;" title="Edit Info">✏️</button>
-                              <button onclick="deleteMedia(${ep.message_id})" class="btn btn-del" style="min-height:34px;" title="Delete">🗑️</button>
+                              <a href="${ep.watch_url}" onclick="openWithAd(event, '${ep.watch_url}')" class="btn btn-watch" style="min-height:32px; font-size:0.75rem;">▶ Play</a>
+                              <a href="${ep.blogger_url}" onclick="openWithAd(event, '${ep.blogger_url}')" class="btn btn-blogger" style="min-height:32px; font-size:0.75rem;">🍿 Blogspot</a>
+                            </div>
+                            <div class="action-row">
+                              <button onclick="copyToClipboard('${ep.stream_url}')" class="btn btn-copy" style="min-height:32px; font-size:0.75rem;">📋 Link</button>
+                              <button onclick="openEditModal(event, ${ep.message_id})" class="btn btn-edit" style="min-height:32px; width:38px;" title="Edit Info">✏️</button>
+                              <button onclick="deleteMedia(${ep.message_id})" class="btn btn-del" style="min-height:32px; width:38px;" title="Delete">🗑️</button>
                             </div>
                           </div>
                         </div>
