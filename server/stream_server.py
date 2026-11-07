@@ -712,9 +712,15 @@ async def handle_api_media(request: web.Request) -> web.Response:
         blogger_url = f"{config.BLOGGER_URL}/?watch={encoded_stream}&title={encoded_title}"
 
         category = r.get("category")
-        # Self-healing fallback: If category was legacy or miscategorized as 'african' because of filmhouse branding tag, fix to parsed category
-        if not category or (category == "african" and "filmhouse" in fn.lower() and not any(k in fn.lower() for k in ["accra", "nollywood", "ghallywood"])):
+        # Self-healing fallback:
+        # 1. If category is missing or miscategorized as 'african' but parsed is not african (e.g. Genius, Georgie & Mandy, Ruthless), heal to parsed!
+        if not category or (category == "african" and parsed.get("category") != "african"):
             category = parsed.get("category") or ("series" if parsed.get("is_series") else "movies")
+        # 2. Realign movies vs series type
+        elif parsed.get("is_series") and category == "movies":
+            category = "series"
+        elif not parsed.get("is_series") and category == "series":
+            category = "movies"
 
         golden_fn = parsed.get("golden_name") or fn
 

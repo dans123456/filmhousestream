@@ -1325,9 +1325,9 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       return norm;
     }
 
-    // Track expanded folders and seasons using safe canonical keys
+    // Track expanded folders and collapsed seasons
     const expandedFolders = new Set();
-    const expandedSeasons = new Set();
+    const collapsedSeasons = new Set();
     window.seasonDataMap = {};
 
     function toggleFolder(key) {
@@ -1346,17 +1346,17 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
 
     function toggleSeason(event, seasonKey) {
       if (event) event.stopPropagation();
-      if (expandedSeasons.has(seasonKey)) {
-        expandedSeasons.delete(seasonKey);
+      if (collapsedSeasons.has(seasonKey)) {
+        collapsedSeasons.delete(seasonKey);
       } else {
-        expandedSeasons.add(seasonKey);
+        collapsedSeasons.add(seasonKey);
       }
       renderMedia();
     }
 
-    function isSeasonExpanded(seasonKey, seasonCount, query) {
-      if (query || seasonCount === 1) return true;
-      return expandedSeasons.has(seasonKey);
+    function isSeasonExpanded(seasonKey, query) {
+      if (query) return true;
+      return !collapsedSeasons.has(seasonKey);
     }
 
     function copyAllSeasonLinks(event, seasonKey, seasonNum) {
@@ -1541,7 +1541,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
               <div class="folder-info">
                 <div class="folder-name">${escapeHtml(group.title)}</div>
                 <div class="folder-meta">
-                  <span>${seasonKeys.length} Season${seasonKeys.length > 1 ? 's' : ''}</span> • 
+                  <span>${seasonKeys.length === 1 ? `Season ${seasonKeys[0]}` : `${seasonKeys.length} Seasons (S${seasonKeys[0]}–S${seasonKeys[seasonKeys.length - 1]})`}</span> • 
                   <span>${totalEpCount} Episode${totalEpCount > 1 ? 's' : ''}</span>
                 </div>
               </div>
@@ -1557,7 +1557,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
             <div class="season-subfolders-container">
               ${seasonKeys.map(sNum => {
                 const seasonKey = `${group.canonicalKey}__s${sNum}`;
-                const isSeasonOpen = isSeasonExpanded(seasonKey, seasonKeys.length, query);
+                const isSeasonOpen = isSeasonExpanded(seasonKey, query);
                 const seasonEpisodes = (group.seasons[sNum] || []).sort((a, b) => (a.episode || 0) - (b.episode || 0));
                 window.seasonDataMap[seasonKey] = seasonEpisodes;
 
