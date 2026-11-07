@@ -15,7 +15,7 @@ import config
 
 logger = logging.getLogger("filmhouse.bot")
 
-async def safe_copy_message(raw_msg: Message, target_channel_id, max_retries: int = 5) -> Message:
+async def safe_copy_message(raw_msg: Message, target_channel_id, status_msg: Message = None, ep_info: str = "", max_retries: int = 5) -> Message:
     """Copies a message to the target channel with automatic FloodWait retry protection."""
     for attempt in range(max_retries):
         try:
@@ -23,6 +23,16 @@ async def safe_copy_message(raw_msg: Message, target_channel_id, max_retries: in
         except FloodWait as fw:
             wait_time = int(fw.value) + 1
             logger.warning(f"[FloodWait] Telegram rate limit hit. Sleeping {wait_time}s before retry (attempt {attempt+1}/{max_retries})")
+            if status_msg:
+                try:
+                    info_label = f" ({ep_info})" if ep_info else ""
+                    await status_msg.edit_text(
+                        f"⏳ *Telegram channel speed limit reached.*\n\n"
+                        f"🛡️ *Safely pausing for {wait_time}s to avoid bot ban...*\n"
+                        f"Will automatically resume{info_label} in {wait_time} seconds!"
+                    )
+                except Exception:
+                    pass
             await asyncio.sleep(wait_time)
         except Exception as err:
             if attempt == max_retries - 1:
@@ -34,6 +44,7 @@ async def safe_copy_message(raw_msg: Message, target_channel_id, max_retries: in
 # In-memory batch buffers: user_id -> {"items": [...], "task": asyncio.Task, "status_msg": Message}
 _batch_buffers: dict[int, dict] = {}
 _batch_locks: dict[int, asyncio.Lock] = {}
+_processing_locks: dict[int, asyncio.Lock] = {}
 # For Option B: user_id -> {"items": [...], "status_msg": Message} waiting for title text from admin
 _pending_title_batches: dict[int, dict] = {}
 
@@ -42,6 +53,12 @@ def get_user_lock(user_id: int) -> asyncio.Lock:
     if user_id not in _batch_locks:
         _batch_locks[user_id] = asyncio.Lock()
     return _batch_locks[user_id]
+
+
+def get_processing_lock(user_id: int) -> asyncio.Lock:
+    if user_id not in _processing_locks:
+        _processing_locks[user_id] = asyncio.Lock()
+    return _processing_locks[user_id]
 
 
 def is_authorized(user_id: int) -> bool:
@@ -118,67 +135,70 @@ async def flush_batch(client: Client, user_id: int):
             await client.send_message(user_id, prompt_text, reply_markup=cancel_kb)
         return
 
-    # Case 1: Single file forwarded (Movie or 1 Episode)
-    if len(items) == 1:
-        item = items[0]
-        msg: Message = item["msg"]
-        parsed = item["parsed"]
-        file_name = item["file_name"]
-        file_size_str = item["file_size_str"]
+    # Ensure only one batch processes at a time per user to prevent concurrent channel spam & Telegram FloodWaits
+    proc_lock = get_processing_lock(user_id)
+    async with proc_lock:
+        # Case 1: Single file forwarded (Movie or 1 Episode)
+        if len(items) == 1:
+            item = items[0]
+            msg: Message = item["msg"]
+            parsed = item["parsed"]
+            file_name = item["file_name"]
+            file_size_str = item["file_size_str"]
 
-        try:
-            # Post copy to bin channel without "Forwarded from" header
-            forwarded = await safe_copy_message(msg, config.BIN_CHANNEL_ID)
-            record_indexed_file(forwarded.id, file_name, parsed=parsed, file_size_str=file_size_str)
-            token = generate_stream_token(forwarded.id)
-            stream_url = f"{config.SERVER_URL}/dl/{token}"
-            blogger_url = build_blogspot_url(stream_url, parsed["title"])
+            try:
+                # Post copy to bin channel without "Forwarded from" header
+                forwarded = await safe_copy_message(msg, config.BIN_CHANNEL_ID, status_msg=status_msg, ep_info=file_name)
+                record_indexed_file(forwarded.id, file_name, parsed=parsed, file_size_str=file_size_str)
+                token = generate_stream_token(forwarded.id)
+                stream_url = f"{config.SERVER_URL}/dl/{token}"
+                blogger_url = build_blogspot_url(stream_url, parsed["title"])
 
-            if parsed["is_series"]:
-                title = parsed["title"]
-                season = parsed["season"] or 1
-                episode = parsed["episode"] or 1
-                ep_sub = f" — {parsed['episode_title']}" if parsed['episode_title'] else ""
-                quality_badge = f" • {parsed['quality']}" if parsed['quality'] else ""
+                if parsed["is_series"]:
+                    title = parsed["title"]
+                    season = parsed["season"] or 1
+                    episode = parsed["episode"] or 1
+                    ep_sub = f" — {parsed['episode_title']}" if parsed['episode_title'] else ""
+                    quality_badge = f" • {parsed['quality']}" if parsed['quality'] else ""
 
-                text = (
-                    f"📺 **{title} — Season {season}**\n\n"
-                    f"• **Episode {episode}{ep_sub}**{quality_badge}\n"
-                    f"📁 `{file_name}` ({file_size_str})\n\n"
-                    f"🔗 **Stream URL (FilmHouse):**\n`{stream_url}`\n\n"
-                    f"🔑 **Token:**\n`{token}`"
-                )
-            else:
-                title = parsed["title"]
-                year_str = f" ({parsed['year']})" if parsed['year'] else ""
-                qual_str = f" [{parsed['quality']}]" if parsed['quality'] else ""
+                    text = (
+                        f"📺 **{title} — Season {season}**\n\n"
+                        f"• **Episode {episode}{ep_sub}**{quality_badge}\n"
+                        f"📁 `{file_name}` ({file_size_str})\n\n"
+                        f"🔗 **Stream URL (FilmHouse):**\n`{stream_url}`\n\n"
+                        f"🔑 **Token:**\n`{token}`"
+                    )
+                else:
+                    title = parsed["title"]
+                    year_str = f" ({parsed['year']})" if parsed['year'] else ""
+                    qual_str = f" [{parsed['quality']}]" if parsed['quality'] else ""
 
-                text = (
-                    f"🎬 **{title}{year_str}{qual_str}**\n\n"
-                    f"📁 `{file_name}` ({file_size_str})\n\n"
-                    f"🔗 **Stream URL (FilmHouse):**\n`{stream_url}`\n\n"
-                    f"🔑 **Token:**\n`{token}`"
-                )
+                    text = (
+                        f"🎬 **{title}{year_str}{qual_str}**\n\n"
+                        f"📁 `{file_name}` ({file_size_str})\n\n"
+                        f"🔗 **Stream URL (FilmHouse):**\n`{stream_url}`\n\n"
+                        f"🔑 **Token:**\n`{token}`"
+                    )
 
-            buttons = [
-                [InlineKeyboardButton("🍿 Test on Blogspot", url=blogger_url)],
-                [InlineKeyboardButton("📱 View in Library (WebApp)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library"))],
-                [InlineKeyboardButton("⬇️ Direct Stream Link", url=stream_url)],
-            ]
-            await status_msg.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
-        except Exception as e:
-            logger.error(f"Error indexing single file: {e}")
-            await status_msg.edit_text(f"❌ Error indexing file: `{str(e)}`")
-        return
+                buttons = [
+                    [InlineKeyboardButton("🍿 Test on Blogspot", url=blogger_url)],
+                    [InlineKeyboardButton("📱 View in Library (WebApp)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library"))],
+                    [InlineKeyboardButton("⬇️ Direct Stream Link", url=stream_url)],
+                ]
+                await status_msg.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
+            except Exception as e:
+                logger.error(f"Error indexing single file: {e}")
+                await status_msg.edit_text(f"❌ Error indexing file: `{str(e)}`")
+            return
 
-    # Case 2: Check if ALL items in the batch are non-series Movies
-    all_movies = all(not item["parsed"].get("is_series") for item in items)
-    if all_movies:
-        await process_movies_batch(client, user_id, items, status_msg)
-        return
+        # Case 2: Check if ALL items in the batch are non-series Movies
+        all_movies = all(not item["parsed"].get("is_series") for item in items)
+        if all_movies:
+            await process_movies_batch(client, user_id, items, status_msg)
+            return
 
-    # Case 3: Multiple files forwarded (Series Batch)
-    await process_series_batch(client, user_id, items, status_msg)
+        # Case 3: Multiple files forwarded (Series Batch)
+        await process_series_batch(client, user_id, items, status_msg)
 
 
 async def process_movies_batch(client: Client, user_id: int, items: list, status_msg: Message):
@@ -213,7 +233,12 @@ async def process_movies_batch(client: Client, user_id: int, items: list, status
         for it in m_items:
             raw_msg: Message = it["msg"]
             try:
-                forwarded = await safe_copy_message(raw_msg, config.BIN_CHANNEL_ID)
+                forwarded = await safe_copy_message(
+                    raw_msg,
+                    config.BIN_CHANNEL_ID,
+                    status_msg=status_msg,
+                    ep_info=f"movie {it['file_name']}"
+                )
                 record_indexed_file(
                     forwarded.id,
                     it["file_name"],
@@ -297,7 +322,12 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
             raw_msg: Message = ep_item["msg"]
             try:
                 # Post copy to bin channel without "Forwarded from" header (with auto-FloodWait retry)
-                forwarded = await safe_copy_message(raw_msg, config.BIN_CHANNEL_ID)
+                forwarded = await safe_copy_message(
+                    raw_msg,
+                    config.BIN_CHANNEL_ID,
+                    status_msg=status_msg,
+                    ep_info=f"at episode {idx}/{total_eps}"
+                )
                 record_indexed_file(
                     forwarded.id,
                     ep_item["file_name"],
