@@ -223,6 +223,8 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
         qual_str = f" [{quality}]" if quality else ""
         clean_name = f"{clean_title}{year_str}{qual_str}"
 
+    category = detect_category(raw_filename, clean_title, is_series)
+
     return {
         "is_series": is_series,
         "title": clean_title,
@@ -235,4 +237,82 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
         "clean_name": clean_name,
         "original_filename": raw_filename,
         "needs_title": needs_title,
+        "category": category,
     }
+
+
+def detect_category(raw_filename: str, clean_title: str, is_series: bool) -> str:
+    """
+    Auto-detects media category:
+    - movies (Hollywood & Global Movies)
+    - series (Western & Hollywood TV Series)
+    - anime (Anime Series & Movies)
+    - kdrama (K-Drama & Asian Drama)
+    - african (African Cinema & Nollywood/Ghallywood)
+    - bollywood (Bollywood & Indian Cinema)
+    - cartoons (Cartoons & Western Animation)
+    """
+    text = f"{raw_filename} {clean_title}".lower()
+
+    # 1. Anime
+    anime_patterns = [
+        r"\[(subsplease|erai-raws|judas|asw|horriblesubs|commie|ember|kayo|neohevc|cleo|pas)\]",
+        r"\b(anime|manga|otaku)\b",
+        r"\b(jap|japanese)\b",
+        r"\b(solo leveling|demon slayer|kimetsu no yaiba|jujutsu kaisen|attack on titan|shingeki no kyojin)\b",
+        r"\b(naruto|boruto|one piece|bleach|chainsaw man|death note|my hero academia|boku no hero)\b",
+        r"\b(dragon ball|black clover|hunter x hunter|spy x family|tokyo ghoul|vinland saga|blue lock)\b",
+        r"\b(kaiju no|dan da dan|dandadan|frieren|wind breaker|oshi no ko|sword art online|overlord)\b",
+        r"\b(fullmetal alchemist|haikyuu|mob psycho|one punch man|hells paradise|jigokuraku)\b",
+    ]
+    for pat in anime_patterns:
+        if re.search(pat, text):
+            return "anime"
+
+    # 2. K-Drama & Asian Drama
+    kdrama_patterns = [
+        r"\b(kdrama|k-drama|cdrama|c-drama|korean drama|asian drama)\b",
+        r"\b(the remarried empress|queen of tears|crash landing on you|squid game|all of us are dead)\b",
+        r"\b(the glory|vincenzo|itaewon class|descendants of the sun|goblin|business proposal)\b",
+        r"\b(twinkling watermelon|marry my husband|lovely runner|hotel del luna|strong girl)\b",
+        r"\b(weightlifting fairy|true beauty|extraordinary attorney woo|sweet home|moving|pyramid game)\b",
+    ]
+    for pat in kdrama_patterns:
+        if re.search(pat, text):
+            return "kdrama"
+
+    # 3. African Cinema & Series (Nollywood / Ghallywood)
+    african_patterns = [
+        r"\b(nollywood|ghallywood|african movie|african series|ghana|nigeria|kumawood)\b",
+        r"\b(accra medic|a tribe called judah|jagun jagun|anikulapo|king of boys|the black book)\b",
+        r"\b(blood sisters|shanty town|far from home|brotherhood|gangs of lagos|lisabi|breath of life)\b",
+        r"\b(olishe|afamefuna|house of ga'a|house of gaa|battle on buka street|wedding party)\b",
+        r"\b(filmhouse|accra)\b",
+    ]
+    for pat in african_patterns:
+        if re.search(pat, text):
+            return "african"
+
+    # 4. Bollywood & Indian Cinema
+    bollywood_patterns = [
+        r"\b(bollywood|kollywood|tollywood|mollywood|sandalwood)\b",
+        r"\b(hindi|telugu|tamil|malayalam|kannada|punjabi)\b",
+        r"\b(stree|animal|jawan|pathaan|dangal|rrr|kgf|pushpa|bahubali|salaar|kalki|devara|fighter|shaitaan)\b",
+    ]
+    for pat in bollywood_patterns:
+        if re.search(pat, text):
+            return "bollywood"
+
+    # 5. Cartoons & Western Animation
+    cartoon_patterns = [
+        r"\b(disney|pixar|dreamworks|illumination|nickelodeon|cartoon network)\b",
+        r"\b(moana|inside out|kung fu panda|despicable me|minions|toy story|frozen|shrek|zootopia)\b",
+        r"\b(spider-man across the spider-verse|spider-man into the spider-verse|puss in boots|sing 2)\b",
+        r"\b(encanto|coco|the lion king|madagascar|ice age|cars|ratatouille|finding nemo|the incredibles)\b",
+    ]
+    for pat in cartoon_patterns:
+        if re.search(pat, text):
+            return "cartoons"
+
+    # 6. Default Western / Hollywood
+    return "series" if is_series else "movies"

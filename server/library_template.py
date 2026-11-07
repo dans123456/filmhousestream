@@ -164,9 +164,11 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       display: none;
     }
     .tab {
-      flex: 1 0 auto;
-      text-align: center;
-      padding: 7px 14px;
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 13px;
       border-radius: 9px;
       font-size: 0.8rem;
       font-weight: 600;
@@ -178,10 +180,166 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       transition: all 0.2s;
     }
     .tab.active {
-      background: #6366f1;
+      background: linear-gradient(135deg, #6366f1, #7c3aed);
       color: #fff;
       border-color: #6366f1;
       box-shadow: 0 2px 10px rgba(99, 102, 241, 0.35);
+    }
+    .tab-count {
+      font-size: 0.68rem;
+      font-weight: 700;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 1px 6px;
+      border-radius: 999px;
+      color: #cbd5e1;
+    }
+    .tab.active .tab-count {
+      background: rgba(255, 255, 255, 0.25);
+      color: #fff;
+    }
+    .category-section {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 22px;
+      width: 100%;
+    }
+    .category-section-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 11px 15px;
+      background: linear-gradient(90deg, rgba(28, 33, 54, 0.95), rgba(18, 21, 35, 0.9));
+      border: 1px solid rgba(99, 102, 241, 0.25);
+      border-left: 4px solid #6366f1;
+      border-radius: 14px;
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.2s ease;
+    }
+    .category-section-banner:hover {
+      background: linear-gradient(90deg, rgba(34, 40, 66, 0.95), rgba(22, 26, 44, 0.9));
+      border-color: rgba(99, 102, 241, 0.45);
+    }
+    .category-banner-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 1;
+      min-width: 0;
+    }
+    .category-banner-icon {
+      font-size: 1.25rem;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+    .category-banner-title {
+      font-size: 0.93rem;
+      font-weight: 700;
+      color: #f8fafc;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .category-banner-count {
+      font-size: 0.72rem;
+      font-weight: 600;
+      background: rgba(99, 102, 241, 0.2);
+      color: #a5b4fc;
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      padding: 2px 8px;
+      border-radius: 999px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .category-banner-toggle {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.05);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      color: #94a3b8;
+      transition: transform 0.2s ease;
+      flex-shrink: 0;
+    }
+    .category-banner-toggle.collapsed {
+      transform: rotate(-90deg);
+    }
+    .category-section-content {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      width: 100%;
+    }
+    .category-section-content.collapsed {
+      display: none;
+    }
+    .badge-category {
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 6px;
+      background: rgba(255, 188, 0, 0.12);
+      color: #facc15;
+      border: 1px solid rgba(255, 188, 0, 0.25);
+      cursor: pointer;
+      white-space: nowrap;
+      user-select: none;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .badge-category:hover {
+      background: rgba(255, 188, 0, 0.22);
+      border-color: rgba(255, 188, 0, 0.45);
+    }
+    .btn-bulk-category {
+      background: rgba(255, 188, 0, 0.15);
+      color: #facc15;
+      border: 1px solid rgba(255, 188, 0, 0.3);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-bulk-category:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .category-modal-options {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      width: 100%;
+      margin: 10px 0;
+    }
+    .cat-modal-btn {
+      width: 100%;
+      padding: 10px 14px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #f1f5f9;
+      font-size: 0.84rem;
+      font-weight: 600;
+      text-align: left;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.15s ease;
+    }
+    .cat-modal-btn:hover {
+      background: rgba(99, 102, 241, 0.2);
+      border-color: rgba(99, 102, 241, 0.45);
+      color: #fff;
     }
     .media-grid {
       display: flex;
@@ -798,10 +956,15 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       <span id="searchClear" class="search-clear" onclick="clearSearch()">✕</span>
     </div>
 
-    <div class="filter-tabs">
-      <button class="tab active" data-filter="all">All Media</button>
-      <button class="tab" data-filter="series">TV Series</button>
-      <button class="tab" data-filter="movies">Movies</button>
+    <div class="filter-tabs" id="categoryTabs">
+      <button class="tab active" data-filter="all">🌐 All <span class="tab-count" id="count-all">0</span></button>
+      <button class="tab" data-filter="movies">🎬 Movies <span class="tab-count" id="count-movies">0</span></button>
+      <button class="tab" data-filter="series">📺 Series <span class="tab-count" id="count-series">0</span></button>
+      <button class="tab" data-filter="anime">⚔️ Anime <span class="tab-count" id="count-anime">0</span></button>
+      <button class="tab" data-filter="kdrama">🌸 K-Drama <span class="tab-count" id="count-kdrama">0</span></button>
+      <button class="tab" data-filter="african">🌍 African <span class="tab-count" id="count-african">0</span></button>
+      <button class="tab" data-filter="bollywood">👳 Bollywood <span class="tab-count" id="count-bollywood">0</span></button>
+      <button class="tab" data-filter="cartoons">🎨 Cartoons <span class="tab-count" id="count-cartoons">0</span></button>
     </div>
 
     <div id="mediaGrid" class="media-grid">
@@ -815,6 +978,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       <span id="selectAllIcon">☑️</span> <span id="selectAllLabel">All</span>
     </button>
     <span id="selectedCountBadge" class="bulk-count">0 Selected</span>
+    <button id="bulkCatBtn" class="btn-bulk-category" onclick="openBulkCategoryModal()" disabled>🏷️ Set Category</button>
     <button id="bulkDeleteBtn" class="btn-bulk-delete" onclick="executeBulkDelete()" disabled>🗑️ Delete</button>
     <button class="btn-bulk-cancel" onclick="exitSelectMode()" title="Cancel Selection">✕</button>
   </div>
@@ -830,6 +994,25 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       <input type="password" id="adminKeyInput" class="auth-input" placeholder="Admin Passcode..." onkeydown="if(event.key==='Enter') submitAuth()">
       <button onclick="submitAuth()" class="auth-btn">Unlock Library</button>
       <div id="authError" class="auth-error">❌ Unauthorized or invalid passcode.</div>
+    </div>
+  </div>
+
+  <!-- Category Change Modal -->
+  <div id="categoryModal" class="auth-overlay" style="display:none;">
+    <div class="auth-card" style="max-width: 360px;">
+      <div class="auth-icon">🏷️</div>
+      <h2 id="catModalTitle" style="font-size:1.1rem; margin-bottom:4px;">Set Category</h2>
+      <p id="catModalDesc" style="font-size:0.8rem; margin-bottom:12px; color:#94a3b8;">Choose a category for this media:</p>
+      <div class="category-modal-options">
+        <button class="cat-modal-btn" onclick="applyCategoryChange('movies')">🎬 Hollywood & Global Movies</button>
+        <button class="cat-modal-btn" onclick="applyCategoryChange('series')">📺 Western TV Series</button>
+        <button class="cat-modal-btn" onclick="applyCategoryChange('anime')">⚔️ Anime</button>
+        <button class="cat-modal-btn" onclick="applyCategoryChange('kdrama')">🌸 K-Drama & Asian Drama</button>
+        <button class="cat-modal-btn" onclick="applyCategoryChange('african')">🌍 African Cinema & Series</button>
+        <button class="cat-modal-btn" onclick="applyCategoryChange('bollywood')">👳 Bollywood & Indian Cinema</button>
+        <button class="cat-modal-btn" onclick="applyCategoryChange('cartoons')">🎨 Cartoons & Animation</button>
+      </div>
+      <button onclick="closeCategoryModal()" class="btn" style="width:100%; margin-top:10px; background:rgba(255,255,255,0.06); color:#94a3b8;">Cancel</button>
     </div>
   </div>
 
@@ -940,6 +1123,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         hideAuthModal();
         allMedia = data.items || [];
         document.getElementById('statsBadge').textContent = `${allMedia.length} Titles`;
+        updateCategoryCounts();
         renderMedia();
 
         // Quietly preload Monetag ad in background
@@ -971,6 +1155,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           const data = await res.json();
           allMedia = data.items || [];
           document.getElementById('statsBadge').textContent = `${allMedia.length} Titles`;
+          updateCategoryCounts();
           renderMedia();
         } else {
           err.textContent = '❌ Incorrect Admin Passcode or Unauthorized Account.';
@@ -1027,18 +1212,16 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
     function toggleSelectAll() {
       const query = document.getElementById('searchInput').value.toLowerCase().trim();
       const visible = allMedia.filter(item => {
-        const titleMatch = (item.display_name || item.file_name).toLowerCase().includes(query);
+        const titleMatch = (item.display_name || item.file_name || item.series_title || '').toLowerCase().includes(query);
         if (!titleMatch) return false;
-        if (currentFilter === "series") return item.is_series;
-        if (currentFilter === "movies") return !item.is_series;
-        return true;
+        if (currentFilter === "all") return true;
+        const itemCat = item.category || (item.is_series ? 'series' : 'movies');
+        return itemCat === currentFilter;
       });
 
       if (selectedIds.size === visible.length && visible.length > 0) {
-        // Deselect all
         selectedIds.clear();
       } else {
-        // Select all visible
         visible.forEach(item => selectedIds.add(item.message_id));
       }
       renderMedia();
@@ -1049,13 +1232,18 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       const count = selectedIds.size;
       const countBadge = document.getElementById('selectedCountBadge');
       const deleteBtn = document.getElementById('bulkDeleteBtn');
+      const bulkCatBtn = document.getElementById('bulkCatBtn');
       const selectAllLabel = document.getElementById('selectAllLabel');
 
       countBadge.textContent = `${count} Selected`;
       deleteBtn.disabled = count === 0;
       deleteBtn.textContent = count > 0 ? `🗑️ Delete (${count})` : '🗑️ Delete';
+      if (bulkCatBtn) {
+        bulkCatBtn.disabled = count === 0;
+        bulkCatBtn.textContent = count > 0 ? `🏷️ Set Category (${count})` : '🏷️ Set Category';
+      }
 
-      const visibleCount = document.querySelectorAll('.media-card').length;
+      const visibleCount = document.querySelectorAll('.media-card, .episode-row, .quality-version-row').length;
       selectAllLabel.textContent = (count === visibleCount && visibleCount > 0) ? 'None' : 'All';
     }
 
@@ -1076,6 +1264,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           showToast(`🗑️ ${count} items deleted!`);
           allMedia = allMedia.filter(m => !selectedIds.has(m.message_id));
           document.getElementById('statsBadge').textContent = `${allMedia.length} Titles`;
+          updateCategoryCounts();
           exitSelectMode();
           renderMedia();
         } else {
@@ -1094,13 +1283,14 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         const res = await fetch('/api/media/delete', {
           method: 'POST',
           headers: getAuthHeaders(),
-          body: JSON.stringify({ message_id: messageId })
+          body: JSON.stringify({ message_ids: [messageId] })
         });
         const result = await res.json();
         if (result.success) {
           showToast("🗑️ Media deleted successfully!");
           allMedia = allMedia.filter(m => m.message_id !== messageId);
           document.getElementById('statsBadge').textContent = `${allMedia.length} Titles`;
+          updateCategoryCounts();
           renderMedia();
         } else {
           alert("Error: " + (result.error || "Could not delete."));
@@ -1188,29 +1378,117 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       showToast(`📋 Copied all ${eps.length} links for Season ${seasonNum}!`);
     }
 
-    function renderMedia() {
-      const grid = document.getElementById('mediaGrid');
-      const query = document.getElementById('searchInput').value.toLowerCase().trim();
+    // FilmHouse Category Definitions (Hollywood Movies & Western Series start first as requested)
+    const CATEGORIES = [
+      { id: 'movies', name: 'Hollywood & Global Movies', icon: '🎬', tag: 'Hollywood' },
+      { id: 'series', name: 'Western TV Series', icon: '📺', tag: 'Series' },
+      { id: 'anime', name: 'Anime', icon: '⚔️', tag: 'Anime' },
+      { id: 'kdrama', name: 'K-Drama & Asian Drama', icon: '🌸', tag: 'K-Drama' },
+      { id: 'african', name: 'African Cinema & Series', icon: '🌍', tag: 'African' },
+      { id: 'bollywood', name: 'Bollywood & Indian Cinema', icon: '👳', tag: 'Bollywood' },
+      { id: 'cartoons', name: 'Cartoons & Animation', icon: '🎨', tag: 'Cartoons' },
+    ];
 
-      const filtered = allMedia.filter(item => {
-        const titleMatch = (item.display_name || item.file_name || item.series_title || '').toLowerCase().includes(query);
-        if (!titleMatch) return false;
+    function getCategoryObj(catId) {
+      return CATEGORIES.find(c => c.id === catId) || CATEGORIES[0];
+    }
 
-        if (currentFilter === "series") return item.is_series;
-        if (currentFilter === "movies") return !item.is_series;
-        return true;
+    function updateCategoryCounts() {
+      const counts = { all: allMedia.length, movies: 0, series: 0, anime: 0, kdrama: 0, african: 0, bollywood: 0, cartoons: 0 };
+      allMedia.forEach(m => {
+        const cat = m.category || (m.is_series ? 'series' : 'movies');
+        if (counts[cat] !== undefined) {
+          counts[cat]++;
+        } else {
+          counts[m.is_series ? 'series' : 'movies']++;
+        }
       });
+      for (const [key, val] of Object.entries(counts)) {
+        const el = document.getElementById(`count-${key}`);
+        if (el) el.textContent = val;
+      }
+    }
 
-      if (filtered.length === 0) {
-        grid.innerHTML = '<div class="empty-state">No media found matching your filter.</div>';
+    const collapsedSections = new Set();
+    function toggleSectionCollapse(catId) {
+      if (collapsedSections.has(catId)) {
+        collapsedSections.delete(catId);
+      } else {
+        collapsedSections.add(catId);
+      }
+      renderMedia();
+    }
+
+    let currentCategoryTargetMid = null;
+    let isBulkCategoryTarget = false;
+
+    function openCategoryModal(event, messageId) {
+      if (event) event.stopPropagation();
+      currentCategoryTargetMid = messageId;
+      isBulkCategoryTarget = false;
+      document.getElementById('catModalTitle').textContent = 'Change Category';
+      document.getElementById('catModalDesc').textContent = 'Select a new category for this media:';
+      document.getElementById('categoryModal').style.display = 'flex';
+    }
+
+    function openBulkCategoryModal() {
+      if (selectedIds.size === 0) return;
+      currentCategoryTargetMid = null;
+      isBulkCategoryTarget = true;
+      document.getElementById('catModalTitle').textContent = 'Change Category (Bulk)';
+      document.getElementById('catModalDesc').textContent = `Assign category for all ${selectedIds.size} selected items:`;
+      document.getElementById('categoryModal').style.display = 'flex';
+    }
+
+    function closeCategoryModal() {
+      document.getElementById('categoryModal').style.display = 'none';
+      currentCategoryTargetMid = null;
+      isBulkCategoryTarget = false;
+    }
+
+    async function applyCategoryChange(category) {
+      const mids = isBulkCategoryTarget ? Array.from(selectedIds) : (currentCategoryTargetMid ? [currentCategoryTargetMid] : []);
+      if (mids.length === 0) {
+        closeCategoryModal();
         return;
       }
 
-      // 1. Group series into folder cards using canonical keys and prefix coalescing
+      closeCategoryModal();
+      showToast("⏳ Updating category...");
+
+      try {
+        const res = await fetch('/api/media/category', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ message_ids: mids, category: category })
+        });
+        const result = await res.json();
+        if (result.success) {
+          showToast(`🏷️ Updated to ${getCategoryObj(category).name}!`);
+          allMedia.forEach(m => {
+            if (mids.includes(m.message_id)) {
+              m.category = category;
+            }
+          });
+          updateCategoryCounts();
+          renderMedia();
+          if (isBulkCategoryTarget) {
+            exitSelectMode();
+          }
+        } else {
+          alert("Error: " + (result.error || "Could not update category."));
+        }
+      } catch (e) {
+        alert("Failed to update category.");
+      }
+    }
+
+    function renderItemListHtml(items, query) {
+      // 1. Group series using smart canonical keys and prefix coalescing
       const seriesGroupList = [];
       const standaloneItems = [];
 
-      filtered.forEach(item => {
+      items.forEach(item => {
         if (item.is_series && item.series_title) {
           const rawTitle = item.series_title;
           const normKey = getCanonicalSeriesKey(rawTitle);
@@ -1230,13 +1508,14 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
             matchGroup = {
               canonicalKey: normKey,
               title: rawTitle,
+              category: item.category || (item.is_series ? 'series' : 'movies'),
+              firstMid: item.message_id,
               seasons: {},
               allEpisodes: [],
               quality: item.quality || 'HD',
             };
             seriesGroupList.push(matchGroup);
           } else {
-            // Adopt longer, more descriptive title (e.g. "Georgie And Mandys First Marriage" > "Georgie And Mandy's")
             if (rawTitle.length > matchGroup.title.length) {
               matchGroup.title = rawTitle;
               matchGroup.canonicalKey = normKey;
@@ -1256,15 +1535,16 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         }
       });
 
-      let html = '';
+      let subHtml = '';
 
-      // 1. Render Series Folders with Collapsible Season Subfolders
+      // Render Series Folders
       seriesGroupList.sort((a, b) => a.title.localeCompare(b.title)).forEach(group => {
         const seasonKeys = Object.keys(group.seasons).map(Number).sort((a, b) => a - b);
         const isExpanded = isFolderExpanded(group.canonicalKey, query);
         const totalEpCount = group.allEpisodes.length;
+        const catObj = getCategoryObj(group.category);
 
-        html += `
+        subHtml += `
         <div class="series-folder-card">
           <div class="folder-header" onclick="toggleFolder('${group.canonicalKey}')">
             <div class="folder-title-box">
@@ -1277,7 +1557,8 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
                 </div>
               </div>
             </div>
-            <div style="display:flex; align-items:center; gap:8px;">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span class="badge-category" onclick="openCategoryModal(event, ${group.firstMid})" title="Change Category">${catObj.icon} ${catObj.tag} ▾</span>
               <span class="badge-quality">${escapeHtml(group.quality)}</span>
               <div class="folder-toggle-btn ${isExpanded ? 'expanded' : ''}">▼</div>
             </div>
@@ -1347,10 +1628,9 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         `;
       });
 
-      // 2. Render Movies (with Smart Multi-Quality Grouping!)
+      // Render Movies (with Smart Multi-Quality Grouping)
       const movieGroups = {};
       standaloneItems.forEach(item => {
-        // Strip out quality tags to merge duplicate movie versions
         const cleanTitle = (item.display_name || item.file_name || '')
           .replace(/\[\s*(1080p|720p|480p|2160p|4k|uhd|bluray|webrip|web-dl|hdrip|hd|cam)\s*\]/gi, '')
           .replace(/\b(1080p|720p|480p|2160p|4k|uhd|bluray|webrip|web-dl|hdrip|hd|cam|6ch|x264|x265|hevc)\b/gi, '')
@@ -1362,29 +1642,31 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         if (!movieGroups[groupKey]) {
           movieGroups[groupKey] = {
             title: item.display_name || item.file_name,
-            items: [],
+            category: item.category || 'movies',
+            items: []
           };
         }
         movieGroups[groupKey].items.push(item);
       });
 
-      Object.keys(movieGroups).sort().forEach(key => {
-        const mGroup = movieGroups[key];
+      Object.values(movieGroups).forEach(mGroup => {
+        const catObj = getCategoryObj(mGroup.category);
         if (mGroup.items.length === 1) {
-          // Standard Single Movie Card
           const item = mGroup.items[0];
           const isChecked = selectedIds.has(item.message_id);
-          const cardClass = isChecked ? 'media-card selected' : 'media-card';
-          html += `
-          <div id="card-${item.message_id}" class="${cardClass}">
+          subHtml += `
+          <div id="card-${item.message_id}" class="media-card ${isChecked ? 'selected' : ''}">
             <div class="card-top">
               <div class="card-checkbox">
                 <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="onCardCheck(event, ${item.message_id})">
               </div>
               <div class="card-title-wrap">
-                <div class="card-title">${escapeHtml(item.display_name)}</div>
+                <div class="card-title">🎬 ${escapeHtml(item.display_name)}</div>
               </div>
-              <span class="badge-quality">${escapeHtml(item.quality || 'HD')}</span>
+              <div style="display:flex; align-items:center; gap:6px;">
+                <span class="badge-category" onclick="openCategoryModal(event, ${item.message_id})" title="Change Category">${catObj.icon} ${catObj.tag} ▾</span>
+                <span class="badge-quality">${escapeHtml(item.quality || 'HD')}</span>
+              </div>
             </div>
             <div class="card-meta">
               <div class="file-badge">📁 ${escapeHtml(item.file_name)}</div>
@@ -1405,13 +1687,16 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         } else {
           // Multi-Quality Grouped Movie Card
           const qualityTags = mGroup.items.map(it => it.quality || 'HD');
-          html += `
+          subHtml += `
           <div class="multi-quality-card">
             <div class="card-top">
               <div class="card-title-wrap">
                 <div class="card-title" style="font-size:1.05rem;">🎬 ${escapeHtml(mGroup.title)}</div>
               </div>
-              <span class="multi-quality-badge">✨ ${mGroup.items.length} Qualities Available</span>
+              <div style="display:flex; align-items:center; gap:6px;">
+                <span class="badge-category" onclick="openCategoryModal(event, ${mGroup.items[0]?.message_id})" title="Change Category">${catObj.icon} ${catObj.tag} ▾</span>
+                <span class="multi-quality-badge">✨ ${mGroup.items.length} Qualities</span>
+              </div>
             </div>
             <div class="card-meta" style="margin-top: -4px;">
               <span style="font-size:0.75rem; color:#94a3b8;">Versions: ${escapeHtml(qualityTags.join(' • '))}</span>
@@ -1443,6 +1728,79 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           `;
         }
       });
+
+      return subHtml;
+    }
+
+    function renderMedia() {
+      const grid = document.getElementById('mediaGrid');
+      const query = document.getElementById('searchInput').value.toLowerCase().trim();
+
+      const filtered = allMedia.filter(item => {
+        const titleMatch = (item.display_name || item.file_name || item.series_title || '').toLowerCase().includes(query);
+        return titleMatch;
+      });
+
+      if (filtered.length === 0) {
+        grid.innerHTML = '<div class="empty-state">No media found matching your filter.</div>';
+        return;
+      }
+
+      let html = '';
+
+      if (currentFilter === 'all') {
+        // Render each category in the requested order: Movies, Series, Anime, K-Drama, African, Bollywood, Cartoons
+        CATEGORIES.forEach(cat => {
+          const catItems = filtered.filter(item => {
+            const itemCat = item.category || (item.is_series ? 'series' : 'movies');
+            return itemCat === cat.id;
+          });
+
+          if (catItems.length === 0 && query) {
+            return;
+          }
+
+          const isCollapsed = collapsedSections.has(cat.id) && !query;
+
+          html += `
+          <div class="category-section" id="section-${cat.id}">
+            <div class="category-section-banner" onclick="toggleSectionCollapse('${cat.id}')">
+              <div class="category-banner-left">
+                <span class="category-banner-icon">${cat.icon}</span>
+                <span class="category-banner-title">${cat.name}</span>
+                <span class="category-banner-count">${catItems.length} Titles</span>
+              </div>
+              <div class="category-banner-toggle ${isCollapsed ? 'collapsed' : ''}">▼</div>
+            </div>
+            <div class="category-section-content ${isCollapsed ? 'collapsed' : ''}">
+              ${catItems.length > 0 ? renderItemListHtml(catItems, query) : '<div class="empty-state" style="padding:15px; font-size:0.8rem; margin:0;">No items in this category.</div>'}
+            </div>
+          </div>
+          `;
+        });
+      } else {
+        // Specific Category Filter
+        const activeCat = CATEGORIES.find(c => c.id === currentFilter) || CATEGORIES[0];
+        const catItems = filtered.filter(item => {
+          const itemCat = item.category || (item.is_series ? 'series' : 'movies');
+          return itemCat === activeCat.id;
+        });
+
+        html += `
+        <div class="category-section" id="section-${activeCat.id}">
+          <div class="category-section-banner" style="cursor:default;">
+            <div class="category-banner-left">
+              <span class="category-banner-icon">${activeCat.icon}</span>
+              <span class="category-banner-title">${activeCat.name}</span>
+              <span class="category-banner-count">${catItems.length} Titles</span>
+            </div>
+          </div>
+          <div class="category-section-content">
+            ${catItems.length > 0 ? renderItemListHtml(catItems, query) : '<div class="empty-state">No media found in this category.</div>'}
+          </div>
+        </div>
+        `;
+      }
 
       grid.innerHTML = html;
 

@@ -12,7 +12,7 @@ from server.security import (
 )
 from server.parser import parse_filename
 from server.cache import get_cached_chunk, store_cached_chunk, get_cache_stats
-from bot.storage import get_tracked_files, remove_tracked_files
+from bot.storage import get_tracked_files, remove_tracked_files, update_tracked_category
 from server.library_template import LIBRARY_HTML
 import urllib.parse
 import config
@@ -708,6 +708,13 @@ async def handle_api_media(request: web.Request) -> web.Response:
         encoded_title = urllib.parse.quote(parsed.get("title", fn), safe="")
         blogger_url = f"{config.BLOGGER_URL}/?watch={encoded_stream}&title={encoded_title}"
 
+        category = (
+            r.get("category")
+            or stored_parsed.get("category")
+            or parsed.get("category")
+            or ("series" if parsed.get("is_series") else "movies")
+        )
+
         items.append({
             "message_id": mid,
             "file_name": fn,
@@ -718,6 +725,7 @@ async def handle_api_media(request: web.Request) -> web.Response:
             "episode_title": parsed.get("episode_title") if parsed.get("is_series") else None,
             "quality": parsed.get("quality") or "HD",
             "is_series": parsed.get("is_series", False),
+            "category": category,
             "file_size_str": r.get("file_size_str", ""),
             "stream_url": stream_url,
             "watch_url": watch_url,
@@ -783,6 +791,34 @@ async def handle_api_delete(request: web.Request) -> web.Response:
         return web.json_response({"success": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
 
 
+async def handle_api_category(request: web.Request) -> web.Response:
+    """Updates the category tag for media items (ADMIN ONLY)."""
+    if not check_rate_limit(request, max_requests=30, window_sec=60):
+        return web.json_response({"success": False, "error": "Rate limit exceeded."}, status=429, headers={"Access-Control-Allow-Origin": "*"})
+
+    if not verify_admin_access(request):
+        return web.json_response({"success": False, "error": "Unauthorized: FilmHouse Admin authorization required."}, status=401, headers={"Access-Control-Allow-Origin": "*"})
+
+    try:
+        data = await request.json()
+        mids = data.get("message_ids")
+        if not mids:
+            single_mid = data.get("message_id")
+            if single_mid:
+                mids = [single_mid]
+
+        category = (data.get("category") or "").strip().lower()
+        if not mids or not category:
+            return web.json_response({"success": False, "error": "Missing message_ids or category."}, status=400, headers={"Access-Control-Allow-Origin": "*"})
+
+        mids = [int(m) for m in mids]
+        update_tracked_category(mids, category)
+        return web.json_response({"success": True, "updated_count": len(mids), "category": category}, headers={"Access-Control-Allow-Origin": "*"})
+    except Exception as e:
+        logger.error(f"Error in handle_api_category: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
+
+
 def create_stream_app() -> web.Application:
     """Builds and returns the aiohttp web application with route aliases."""
     app = web.Application()
@@ -794,6 +830,8 @@ def create_stream_app() -> web.Application:
     app.router.add_route("OPTIONS", "/api/media", handle_cors_options)
     app.router.add_post("/api/media/delete", handle_api_delete)
     app.router.add_route("OPTIONS", "/api/media/delete", handle_cors_options)
+    app.router.add_post("/api/media/category", handle_api_category)
+    app.router.add_route("OPTIONS", "/api/media/category", handle_cors_options)
     
     app.router.add_get("/watch/{token}", handle_watch)
     

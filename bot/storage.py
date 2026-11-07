@@ -71,3 +71,23 @@ def remove_tracked_files(message_ids: List[int]):
             json.dump(filtered, f, indent=2)
     except Exception as e:
         logger.error(f"Failed to update tracked media ledger: {e}")
+
+
+def update_tracked_category(message_ids: List[int], category: str):
+    """Update category for message IDs in the local ledger."""
+    _ensure_storage()
+    try:
+        with open(STORAGE_FILE, "r", encoding="utf-8") as f:
+            records = json.load(f)
+
+        id_set = set(message_ids)
+        for r in records:
+            if r.get("message_id") in id_set:
+                r["category"] = category
+                if "parsed" in r and isinstance(r["parsed"], dict):
+                    r["parsed"]["category"] = category
+
+        with open(STORAGE_FILE, "w", encoding="utf-8") as f:
+            json.dump(records, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Failed to update tracked media category: {e}")
