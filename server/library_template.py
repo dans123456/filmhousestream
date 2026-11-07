@@ -1318,17 +1318,19 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       norm = norm.replace(/&/g, ' and ');
       norm = norm.replace(/[^a-z0-9\s]/g, ' ');
       norm = norm.trim().replace(/\s+/g, '_');
+
+      // Universal article stripper: "the_", "a_", "an_" so titles with/without articles unite automatically!
+      norm = norm.replace(/^(the|a|an)_+/, '');
+
+      // Known Franchise Aliases
       if (norm.startsWith('georgie_and_mandy')) return 'georgie_and_mandys_first_marriage';
       if (norm.includes('ruthless')) return 'tyler_perrys_ruthless';
       if (norm.includes('sista')) return 'tyler_perrys_sistas';
-      if (norm.includes('the_oval') || norm === 'oval') return 'tyler_perrys_the_oval';
+      if (norm.includes('oval')) return 'tyler_perrys_the_oval';
       if (norm.includes('zatima')) return 'tyler_perrys_zatima';
-      if (norm.startsWith('the_wings') || norm.startsWith('wings_initiative') || norm === 'wings') return 'the_wings_initiative';
-      if (norm.startsWith('the_low_priest') || norm.startsWith('low_priest')) return 'the_low_priest';
-      // Strip leading "the_" if followed by words so "The X" and "X" unite cleanly
-      if (norm.startsWith('the_') && norm.length > 5) {
-        norm = norm.substring(4);
-      }
+      if (norm.startsWith('wings') || norm.startsWith('wings_initiative')) return 'the_wings_initiative';
+      if (norm.startsWith('low_priest')) return 'the_low_priest';
+
       return norm;
     }
 
@@ -1503,7 +1505,8 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
             };
             seriesGroupList.push(matchGroup);
           } else {
-            if (rawTitle.length > matchGroup.title.length) {
+            const hasThe = rawTitle.toLowerCase().startsWith('the ') && !matchGroup.title.toLowerCase().startsWith('the ');
+            if (hasThe || rawTitle.length > matchGroup.title.length) {
               matchGroup.title = rawTitle;
             }
           }
