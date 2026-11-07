@@ -9,30 +9,10 @@ import json
 import shutil
 import re
 from pathlib import Path
-from server.parser import parse_filename
+from server.parser import parse_filename, build_golden_filename
 
 DATA_FILE = Path(__file__).resolve().parent / "data" / "tracked_media.json"
 BACKUP_FILE = Path(__file__).resolve().parent / "data" / "tracked_media.json.bak"
-
-
-def build_golden_filename(parsed: dict, original_filename: str) -> str:
-    """Builds the pure Golden Dot standard filename for movies and series."""
-    ext_match = re.search(r"\.([a-zA-Z0-9]{2,4})$", original_filename)
-    ext = f".{ext_match.group(1).lower()}" if ext_match else ".mkv"
-
-    clean_title = re.sub(r"[^\w\s\-]", "", parsed.get("title", "Unknown Media")).strip()
-    dots_title = ".".join(clean_title.split())
-
-    if parsed.get("is_series"):
-        s_num = parsed.get("season") or 1
-        e_num = parsed.get("episode") or 1
-        s_tag = f"S{s_num:02d}E{e_num:02d}"
-        q_tag = f".{parsed['quality']}" if parsed.get("quality") else ""
-        return f"{dots_title}.{s_tag}{q_tag}{ext}"
-    else:
-        y_tag = f".{parsed['year']}" if parsed.get("year") else ""
-        q_tag = f".{parsed['quality']}" if parsed.get("quality") else ""
-        return f"{dots_title}{y_tag}{q_tag}{ext}"
 
 
 def fix_database():

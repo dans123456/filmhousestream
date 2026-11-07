@@ -682,11 +682,18 @@ async def handle_api_media(request: web.Request) -> web.Response:
         # 1. Parse from filename using our smart parser
         parsed = parse_filename(fn)
 
-        # 2. Re-canonicalize title if it was stale or un-aliased:
-        if stored_parsed.get("title") and not stored_parsed["title"].lower().startswith("episode "):
-            if parsed.get("title") in ("Georgie & Mandy's First Marriage", "Tyler Perry's Ruthless", "Tyler Perry's Sistas", "Tyler Perry's The Oval", "Tyler Perry's Zatima", "The Wings Initiative", "The Low Priest"):
-                pass
-            else:
+        # 2. Canonical title healing:
+        # If filename parsing yields a valid title, keep it clean and stripped of part/noise tags.
+        # Fall back to stored title only if parsed title is generic or missing.
+        if parsed.get("is_series") and parsed.get("title"):
+            for _ in range(3):
+                parsed["title"] = re.sub(r"\(\s*(part|pt|vol|volume|book|chapter)\s*\d*\s*\)", "", parsed["title"], flags=re.IGNORECASE)
+                parsed["title"] = re.sub(r"[\s\.\-_]+(part|pt|vol|volume|book|chapter)\s*\d*$", "", parsed["title"], flags=re.IGNORECASE)
+                parsed["title"] = re.sub(r"[\s\.\-_]+(kdrama|cdrama|k-drama|c-drama|series|tv|miniseries|mini-series|complete|full)$", "", parsed["title"], flags=re.IGNORECASE)
+                parsed["title"] = re.sub(r"[\s\.\-_]+\(?\d{4}\)?$", "", parsed["title"], flags=re.IGNORECASE)
+                parsed["title"] = parsed["title"].strip(" -_")
+        elif not parsed.get("title") or parsed.get("title") == "Unknown Media" or parsed.get("title").lower().startswith("episode "):
+            if stored_parsed.get("title"):
                 parsed["title"] = stored_parsed["title"]
         if stored_parsed.get("season"):
             parsed["season"] = stored_parsed["season"]

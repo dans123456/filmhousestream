@@ -185,6 +185,15 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
 
     clean_title = re.sub(r"\s+", " ", clean_title).strip(" -_")
 
+    if is_series:
+        # Universal Series Title Cleanup: strip trailing batch/part/volume tokens, release tags, and years
+        for _ in range(3):
+            clean_title = re.sub(r"\(\s*(part|pt|vol|volume|book|chapter)\s*\d*\s*\)", "", clean_title, flags=re.IGNORECASE)
+            clean_title = re.sub(r"[\s\.\-_]+(part|pt|vol|volume|book|chapter)\s*\d*$", "", clean_title, flags=re.IGNORECASE)
+            clean_title = re.sub(r"[\s\.\-_]+(kdrama|cdrama|k-drama|c-drama|series|tv|miniseries|mini-series|complete|full)$", "", clean_title, flags=re.IGNORECASE)
+            clean_title = re.sub(r"[\s\.\-_]+\(?\d{4}\)?$", "", clean_title, flags=re.IGNORECASE)
+            clean_title = clean_title.strip(" -_")
+
     # Check if the title is actually empty or just a bare number / episode tag
     needs_title = False
     if not clean_title or BARE_EPISODE_REGEX.match(clean_title) or clean_title.isdigit():

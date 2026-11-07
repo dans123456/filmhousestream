@@ -1322,6 +1322,12 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       // Universal article stripper: "the_", "a_", "an_" so titles with/without articles unite automatically!
       norm = norm.replace(/^(the|a|an)_+/, '');
 
+      // Proactively strip trailing part, season, volume, year, and release descriptors
+      for (let i = 0; i < 3; i++) {
+        norm = norm.replace(/_(season|s|part|pt|vol|volume|book|chapter|cdrama|kdrama|series|miniseries|tv|complete|full|hd|sd|hq|fhd|uhd|4k|1080p|720p|480p)(_\d+)*$/g, '');
+        norm = norm.replace(/_\d{4}$/g, '');
+      }
+
       // Known Franchise Aliases
       if (norm.startsWith('georgie_and_mandy')) return 'georgie_and_mandys_first_marriage';
       if (norm.includes('ruthless')) return 'tyler_perrys_ruthless';
@@ -1332,6 +1338,32 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       if (norm.startsWith('low_priest')) return 'the_low_priest';
 
       return norm;
+    }
+
+    function canMergeKeys(keyA, keyB) {
+      if (!keyA || !keyB) return false;
+      if (keyA === keyB) return true;
+      const [shorter, longer] = keyA.length < keyB.length ? [keyA, keyB] : [keyB, keyA];
+      if (shorter.length >= 5 && longer.startsWith(shorter + '_')) {
+        const diff = longer.slice(shorter.length + 1);
+        if (/^(part|pt|vol|volume|book|chapter|season|s|kdrama|cdrama|series|miniseries|complete|full|\d{1,4})(_\d+)*$/i.test(diff)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function getCleanFolderTitle(rawTitle) {
+      if (!rawTitle) return '';
+      let clean = String(rawTitle).trim();
+      for (let i = 0; i < 3; i++) {
+        clean = clean.replace(/\(\s*(part|pt|vol|volume|book|chapter|season|s)\s*\d*\s*\)/gi, '');
+        clean = clean.replace(/[\s\.\-_]+(part|pt|vol|volume|book|chapter|season|s)\s*\d*$/i, '');
+        clean = clean.replace(/[\s\.\-_]+(kdrama|cdrama|k-drama|c-drama|series|tv|miniseries|mini-series|complete|full)$/i, '');
+        clean = clean.replace(/[\s\.\-_]+\(?\d{4}\)?$/i, '');
+        clean = clean.trim();
+      }
+      return clean || rawTitle;
     }
 
     // Track expanded folders and collapsed seasons
@@ -1491,12 +1523,12 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           const normKey = getCanonicalSeriesKey(rawTitle);
           if (!normKey) return;
 
-          let matchGroup = seriesGroupList.find(g => g.canonicalKey === normKey);
+          let matchGroup = seriesGroupList.find(g => canMergeKeys(g.canonicalKey, normKey));
 
           if (!matchGroup) {
             matchGroup = {
               canonicalKey: normKey,
-              title: rawTitle,
+              title: getCleanFolderTitle(rawTitle),
               category: item.category || (item.is_series ? 'series' : 'movies'),
               firstMid: item.message_id,
               seasons: {},
@@ -1505,9 +1537,10 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
             };
             seriesGroupList.push(matchGroup);
           } else {
-            const hasThe = rawTitle.toLowerCase().startsWith('the ') && !matchGroup.title.toLowerCase().startsWith('the ');
-            if (hasThe || rawTitle.length > matchGroup.title.length) {
-              matchGroup.title = rawTitle;
+            const candidate = getCleanFolderTitle(rawTitle);
+            const hasThe = candidate.toLowerCase().startsWith('the ') && !matchGroup.title.toLowerCase().startsWith('the ');
+            if (hasThe || (!matchGroup.title.toLowerCase().startsWith('the ') && candidate.length < matchGroup.title.length && candidate.length >= 4)) {
+              matchGroup.title = candidate;
             }
           }
 
@@ -1539,7 +1572,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
             <div class="folder-title-box">
               <div class="folder-icon">📺</div>
               <div class="folder-info">
-                <div class="folder-name">${escapeHtml(group.title)}</div>
+                <div class="folder-name" title="${escapeHtml(group.title)}">${escapeHtml(group.title)}</div>
                 <div class="folder-meta">
                   <span>${seasonKeys.length === 1 ? `Season ${seasonKeys[0]}` : `${seasonKeys.length} Seasons (S${seasonKeys[0]}–S${seasonKeys[seasonKeys.length - 1]})`}</span> • 
                   <span>${totalEpCount} Episode${totalEpCount > 1 ? 's' : ''}</span>
