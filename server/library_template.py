@@ -571,6 +571,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       font-size: 0.8rem;
       transition: transform 0.2s ease;
       flex-shrink: 0;
+      cursor: pointer;
     }
     .folder-toggle-btn.expanded {
       transform: rotate(180deg);
@@ -1339,8 +1340,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       renderMedia();
     }
 
-    function isFolderExpanded(groupKey, query) {
-      if (query) return true;
+    function isFolderExpanded(groupKey) {
       return expandedFolders.has(groupKey);
     }
 
@@ -1354,8 +1354,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       renderMedia();
     }
 
-    function isSeasonExpanded(seasonKey, query) {
-      if (query) return true;
+    function isSeasonExpanded(seasonKey) {
       return !collapsedSeasons.has(seasonKey);
     }
 
@@ -1529,7 +1528,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       // Render Series Folders
       seriesGroupList.sort((a, b) => a.title.localeCompare(b.title)).forEach(group => {
         const seasonKeys = Object.keys(group.seasons).map(Number).sort((a, b) => a - b);
-        const isExpanded = isFolderExpanded(group.canonicalKey, query);
+        const isExpanded = isFolderExpanded(group.canonicalKey);
         const totalEpCount = group.allEpisodes.length;
         const catObj = getCategoryObj(group.category);
 
@@ -1557,7 +1556,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
             <div class="season-subfolders-container">
               ${seasonKeys.map(sNum => {
                 const seasonKey = `${group.canonicalKey}__s${sNum}`;
-                const isSeasonOpen = isSeasonExpanded(seasonKey, query);
+                const isSeasonOpen = isSeasonExpanded(seasonKey);
                 const seasonEpisodes = (group.seasons[sNum] || []).sort((a, b) => (a.episode || 0) - (b.episode || 0));
                 window.seasonDataMap[seasonKey] = seasonEpisodes;
 
@@ -1798,10 +1797,12 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       }
     }
 
+    let prevSearchVal = '';
     function clearSearch() {
       const input = document.getElementById('searchInput');
       input.value = '';
       document.getElementById('searchClear').style.display = 'none';
+      prevSearchVal = '';
       renderMedia();
     }
 
@@ -1817,7 +1818,20 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
 
     const searchInput = document.getElementById('searchInput');
     searchInput.addEventListener('input', () => {
+      const q = searchInput.value.toLowerCase().trim();
       document.getElementById('searchClear').style.display = searchInput.value ? 'block' : 'none';
+      if (q && q !== prevSearchVal) {
+        allMedia.forEach(m => {
+          if (m.is_series && m.series_title) {
+            const titleMatch = (m.display_name || m.file_name || m.series_title || '').toLowerCase().includes(q);
+            if (titleMatch) {
+              const k = getCanonicalSeriesKey(m.series_title);
+              if (k) expandedFolders.add(k);
+            }
+          }
+        });
+      }
+      prevSearchVal = q;
       renderMedia();
     });
 
