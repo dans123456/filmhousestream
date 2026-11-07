@@ -28,9 +28,14 @@ def record_indexed_file(message_id: int, file_name: str, parsed: dict = None, fi
     except Exception:
         records = []
 
+    golden = (parsed and parsed.get("golden_name")) or file_name
+    category = (parsed and parsed.get("category")) or "movies"
+
     records.append({
         "message_id": message_id,
-        "file_name": file_name,
+        "file_name": golden,
+        "original_filename": file_name,
+        "category": category,
         "parsed": parsed or {},
         "file_size_str": file_size_str or "",
         "created_at": int(time.time()),

@@ -223,12 +223,14 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
 
         if norm_t.startswith("georgie and mandy"):
             clean_title = "Georgie & Mandy's First Marriage"
-        elif norm_t.startswith("tyler perry") and "ruthless" in norm_t:
+        elif "ruthless" in norm_t:
             clean_title = "Tyler Perry's Ruthless"
-        elif norm_t.startswith("tyler perry") and "sista" in norm_t:
+        elif "sista" in norm_t:
             clean_title = "Tyler Perry's Sistas"
-        elif norm_t.startswith("tyler perry") and "oval" in norm_t:
+        elif "the oval" in norm_t or norm_t == "oval":
             clean_title = "Tyler Perry's The Oval"
+        elif "zatima" in norm_t:
+            clean_title = "Tyler Perry's Zatima"
 
     # 5. Build Human-Readable Display Name
     if is_series:
@@ -248,7 +250,7 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
 
     category = detect_category(raw_filename, clean_title, is_series)
 
-    return {
+    result = {
         "is_series": is_series,
         "title": clean_title,
         "season": season,
@@ -262,6 +264,28 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
         "needs_title": needs_title,
         "category": category,
     }
+    result["golden_name"] = build_golden_filename(result, raw_filename)
+    return result
+
+
+def build_golden_filename(parsed: dict, original_filename: str) -> str:
+    """Builds the pure Golden Dot standard filename for movies and series."""
+    ext_match = re.search(r"\.([a-zA-Z0-9]{2,4})$", original_filename or "")
+    ext = f".{ext_match.group(1).lower()}" if ext_match else ".mkv"
+
+    clean_title = re.sub(r"[^\w\s\-]", "", parsed.get("title") or "Unknown Media").strip()
+    dots_title = ".".join(clean_title.split())
+
+    if parsed.get("is_series"):
+        s_num = parsed.get("season") or 1
+        e_num = parsed.get("episode") or 1
+        s_tag = f"S{s_num:02d}E{e_num:02d}"
+        q_tag = f".{parsed['quality']}" if parsed.get("quality") else ""
+        return f"{dots_title}.{s_tag}{q_tag}{ext}"
+    else:
+        y_tag = f".{parsed['year']}" if parsed.get("year") else ""
+        q_tag = f".{parsed['quality']}" if parsed.get("quality") else ""
+        return f"{dots_title}{y_tag}{q_tag}{ext}"
 
 
 def detect_category(raw_filename: str, clean_title: str, is_series: bool) -> str:

@@ -1316,7 +1316,13 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       let norm = String(rawTitle).toLowerCase().replace(/['’`]/g, '');
       norm = norm.replace(/&/g, ' and ');
       norm = norm.replace(/[^a-z0-9\s]/g, ' ');
-      return norm.trim().replace(/\s+/g, '_');
+      norm = norm.trim().replace(/\s+/g, '_');
+      if (norm.startsWith('georgie_and_mandy')) return 'georgie_and_mandys_first_marriage';
+      if (norm.includes('ruthless')) return 'tyler_perrys_ruthless';
+      if (norm.includes('sista')) return 'tyler_perrys_sistas';
+      if (norm.includes('the_oval') || norm === 'oval') return 'tyler_perrys_the_oval';
+      if (norm.includes('zatima')) return 'tyler_perrys_zatima';
+      return norm;
     }
 
     // Track expanded folders and seasons using safe canonical keys
@@ -1328,14 +1334,6 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       if (expandedFolders.has(key)) {
         expandedFolders.delete(key);
       } else {
-        // Clear any prefix/suffix variants of this key to keep set clean
-        for (const exp of Array.from(expandedFolders)) {
-          const shorter = exp.length < key.length ? exp : key;
-          const longer = exp.length < key.length ? key : exp;
-          if (shorter.length >= 8 && longer.startsWith(shorter + '_')) {
-            expandedFolders.delete(exp);
-          }
-        }
         expandedFolders.add(key);
       }
       renderMedia();
@@ -1343,15 +1341,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
 
     function isFolderExpanded(groupKey, query) {
       if (query) return true;
-      if (expandedFolders.has(groupKey)) return true;
-      for (const exp of expandedFolders) {
-        const shorter = exp.length < groupKey.length ? exp : groupKey;
-        const longer = exp.length < groupKey.length ? groupKey : exp;
-        if (shorter.length >= 8 && longer.startsWith(shorter + '_')) {
-          return true;
-        }
-      }
-      return false;
+      return expandedFolders.has(groupKey);
     }
 
     function toggleSeason(event, seasonKey) {
@@ -1518,7 +1508,6 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           } else {
             if (rawTitle.length > matchGroup.title.length) {
               matchGroup.title = rawTitle;
-              matchGroup.canonicalKey = normKey;
             }
           }
 

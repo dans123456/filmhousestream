@@ -682,9 +682,12 @@ async def handle_api_media(request: web.Request) -> web.Response:
         # 1. Parse from filename using our smart parser
         parsed = parse_filename(fn)
 
-        # 2. If the user or bot set a specific custom title / season, preserve it!
+        # 2. Re-canonicalize title if it was stale or un-aliased:
         if stored_parsed.get("title") and not stored_parsed["title"].lower().startswith("episode "):
-            parsed["title"] = stored_parsed["title"]
+            if parsed.get("title") in ("Georgie & Mandy's First Marriage", "Tyler Perry's Ruthless", "Tyler Perry's Sistas", "Tyler Perry's The Oval", "Tyler Perry's Zatima"):
+                pass
+            else:
+                parsed["title"] = stored_parsed["title"]
         if stored_parsed.get("season"):
             parsed["season"] = stored_parsed["season"]
         if stored_parsed.get("episode"):
@@ -713,10 +716,13 @@ async def handle_api_media(request: web.Request) -> web.Response:
         if not category or (category == "african" and "filmhouse" in fn.lower() and not any(k in fn.lower() for k in ["accra", "nollywood", "ghallywood"])):
             category = parsed.get("category") or ("series" if parsed.get("is_series") else "movies")
 
+        golden_fn = parsed.get("golden_name") or fn
+
         items.append({
             "message_id": mid,
-            "file_name": fn,
-            "display_name": display_title or fn,
+            "file_name": golden_fn,
+            "original_file_name": fn,
+            "display_name": display_title or golden_fn,
             "series_title": parsed.get("title", fn) if parsed.get("is_series") else None,
             "season": parsed.get("season", 1) if parsed.get("is_series") else None,
             "episode": parsed.get("episode", 1) if parsed.get("is_series") else None,
