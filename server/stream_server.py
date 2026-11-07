@@ -684,7 +684,7 @@ async def handle_api_media(request: web.Request) -> web.Response:
 
         # 2. Re-canonicalize title if it was stale or un-aliased:
         if stored_parsed.get("title") and not stored_parsed["title"].lower().startswith("episode "):
-            if parsed.get("title") in ("Georgie & Mandy's First Marriage", "Tyler Perry's Ruthless", "Tyler Perry's Sistas", "Tyler Perry's The Oval", "Tyler Perry's Zatima"):
+            if parsed.get("title") in ("Georgie & Mandy's First Marriage", "Tyler Perry's Ruthless", "Tyler Perry's Sistas", "Tyler Perry's The Oval", "Tyler Perry's Zatima", "The Wings Initiative"):
                 pass
             else:
                 parsed["title"] = stored_parsed["title"]

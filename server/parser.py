@@ -231,6 +231,8 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             clean_title = "Tyler Perry's The Oval"
         elif "zatima" in norm_t:
             clean_title = "Tyler Perry's Zatima"
+        elif norm_t.startswith("the wings") or norm_t.startswith("wings initiative") or norm_t in ("wings", "the wings", "the wings initiative", "wings initiative"):
+            clean_title = "The Wings Initiative"
 
     # 5. Build Human-Readable Display Name
     if is_series:

@@ -1323,6 +1323,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       if (norm.includes('sista')) return 'tyler_perrys_sistas';
       if (norm.includes('the_oval') || norm === 'oval') return 'tyler_perrys_the_oval';
       if (norm.includes('zatima')) return 'tyler_perrys_zatima';
+      if (norm.startsWith('the_wings') || norm.startsWith('wings_initiative') || norm === 'wings') return 'the_wings_initiative';
       return norm;
     }
 
