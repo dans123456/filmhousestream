@@ -344,15 +344,18 @@ def harmonize_batch_missing_episodes(items: list):
                 existing_eps.add(it["parsed"]["episode"])
 
         # Detect ambiguous / anomalous items:
-        # 1. Season is 0 or None
-        # 2. Season differs from dominant season BUT filename contains 'part' or 's0'
+        # Files that already have a clear SxxExx or 1x01 tag and positive season are NEVER ambiguous!
         ambiguous_items = []
         for it in show_items:
             fn = (it.get("file_name") or "").lower()
             s = it["parsed"].get("season")
+            has_real_tag = bool(re.search(r"\b[sS]\d{1,2}[eE]\d{1,3}\b", fn) or re.search(r"\b\d{1,2}[xX]\d{1,3}\b", fn))
+            if has_real_tag and s and s > 0:
+                continue
+            is_explicit_s0 = bool(re.search(r"\bs0+(?:[^\d]|$)", fn))
             if s == 0 or s is None:
                 ambiguous_items.append(it)
-            elif s != dominant_season and ("part" in fn or "s0" in fn or re.search(r"\bs0\b", fn)):
+            elif is_explicit_s0 or ("part" in fn and not has_real_tag):
                 ambiguous_items.append(it)
 
         if not ambiguous_items:
