@@ -296,8 +296,97 @@ async def process_movies_batch(client: Client, user_id: int, items: list, status
             await client.send_message(user_id, text, reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
 
 
+def harmonize_batch_missing_episodes(items: list):
+    """
+    Analyzes series episodes in a forwarded batch. If a show has a clear dominant season
+    (e.g. Season 8 with 22 episodes), any anomalous items (e.g. S0.part1, S0.part2, or part files)
+    are automatically inherited into that dominant season to fill in missing episode gaps (e.g. Ep 23 & 24).
+    """
+    from server.parser import build_golden_filename
+
+    # Group items by normalized show title
+    shows: dict[str, list] = {}
+    for item in items:
+        p = item.get("parsed") or {}
+        fn = (item.get("file_name") or "").lower()
+        if not p.get("is_series") and not any(k in fn for k in ("part", "s0")):
+            continue
+        title = (p.get("title") or "Unknown").strip().lower()
+        if title not in shows:
+            shows[title] = []
+        shows[title].append(item)
+
+    for title, show_items in shows.items():
+        if len(show_items) < 2:
+            continue
+
+        # Count frequencies of positive seasons
+        season_counts: dict[int, int] = {}
+        for it in show_items:
+            s = it["parsed"].get("season")
+            if s and s > 0:
+                season_counts[s] = season_counts.get(s, 0) + 1
+
+        if not season_counts:
+            continue
+
+        # Find dominant season (the season with the most episodes in this batch)
+        dominant_season = max(season_counts, key=season_counts.get)
+        dominant_count = season_counts[dominant_season]
+
+        if dominant_count < 2:
+            continue
+
+        # Existing episodes in the dominant season
+        existing_eps = set()
+        for it in show_items:
+            if it["parsed"].get("season") == dominant_season and it["parsed"].get("episode"):
+                existing_eps.add(it["parsed"]["episode"])
+
+        # Detect ambiguous / anomalous items:
+        # 1. Season is 0 or None
+        # 2. Season differs from dominant season BUT filename contains 'part' or 's0'
+        ambiguous_items = []
+        for it in show_items:
+            fn = (it.get("file_name") or "").lower()
+            s = it["parsed"].get("season")
+            if s == 0 or s is None:
+                ambiguous_items.append(it)
+            elif s != dominant_season and ("part" in fn or "s0" in fn or re.search(r"\bs0\b", fn)):
+                ambiguous_items.append(it)
+
+        if not ambiguous_items:
+            continue
+
+        # Sort ambiguous items by their initial episode or filename order
+        ambiguous_items.sort(key=lambda x: (x["parsed"].get("episode") or 0, x.get("file_name") or ""))
+
+        # Assign each ambiguous item to the dominant season and the next missing episode
+        next_ep = 1
+        for amb in ambiguous_items:
+            while next_ep in existing_eps:
+                next_ep += 1
+
+            p = amb["parsed"]
+            p["is_series"] = True
+            p["season"] = dominant_season
+            p["episode"] = next_ep
+            p["category"] = "series"
+
+            # Update golden filename
+            orig_fn = amb.get("file_name") or ""
+            golden = build_golden_filename(p, orig_fn)
+            p["golden_name"] = golden
+
+            existing_eps.add(next_ep)
+            logger.info(f"[Batch Harmonizer] Snapped '{orig_fn}' into {p.get('title')} Season {dominant_season} Episode {next_ep} ({golden})")
+
+
 async def process_series_batch(client: Client, user_id: int, items: list, status_msg: Message):
     """Processes, sorts, forwards to bin, and outputs a formatted list for a batch of episodes."""
+    # Harmonize anomalous part / S0 files into dominant season filling in missing episode slots
+    harmonize_batch_missing_episodes(items)
+
     groups: dict[tuple, list] = {}
     for item in items:
         p = item["parsed"]

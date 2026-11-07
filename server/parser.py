@@ -253,17 +253,17 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
         elif norm_t == "friends":
             clean_title = "Friends"
             is_series = True
-            # Special handling for Friends Season 1 two-part episode ("The One with Two Parts", Ep 16 & 17)
-            # Frequently tagged as Friends S0 Part 1 / Part 2 or Friends S01 Part 1 / Part 2
+            # Special handling for Friends Season 8 two-part finale ("The One Where Rachel Has a Baby", Ep 23 & 24)
+            # Frequently tagged in rip packs as Friends.S0.part1 / Friends.S0.part2
             lower_raw = raw_filename.lower()
             if re.search(r"\bpart[\s\.\-_]*1\b", lower_raw) or re.search(r"part1\b", lower_raw):
-                season = 1
-                episode = 16
-                episode_title = "The One with Two Parts: Part 1"
+                season = 8
+                episode = 23
+                episode_title = "The One Where Rachel Has a Baby: Part 1"
             elif re.search(r"\bpart[\s\.\-_]*2\b", lower_raw) or re.search(r"part2\b", lower_raw):
-                season = 1
-                episode = 17
-                episode_title = "The One with Two Parts: Part 2"
+                season = 8
+                episode = 24
+                episode_title = "The One Where Rachel Has a Baby: Part 2"
 
     # 5. Build Human-Readable Display Name
     if is_series:
