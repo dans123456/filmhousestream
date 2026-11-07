@@ -723,7 +723,10 @@ async def handle_api_media(request: web.Request) -> web.Response:
         # 1. If category is missing or miscategorized as 'african' but parsed is not african (e.g. Genius, Georgie & Mandy, Ruthless), heal to parsed!
         if not category or (category == "african" and parsed.get("category") != "african"):
             category = parsed.get("category") or ("series" if parsed.get("is_series") else "movies")
-        # 2. Realign movies vs series type
+        # 2. Promote generic movies/series to specific category if parsed detects it (e.g. african, anime, kdrama, bollywood, cartoons)
+        elif parsed.get("category") and parsed.get("category") not in ("movies", "series") and category in ("movies", "series"):
+            category = parsed.get("category")
+        # 3. Realign movies vs series type
         elif parsed.get("is_series") and category == "movies":
             category = "series"
         elif not parsed.get("is_series") and category == "series":

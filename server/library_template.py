@@ -1566,19 +1566,27 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       if (norm.includes('sista')) return 'tyler_perrys_sistas';
       if (norm.includes('oval')) return 'tyler_perrys_the_oval';
       if (norm.includes('zatima')) return 'tyler_perrys_zatima';
-      if (norm.startsWith('wings') || norm.startsWith('wings_initiative')) return 'the_wings_initiative';
+      if (norm.startsWith('wings') || (norm.includes('wing') && (norm.includes('innovat') || norm.includes('initiat')))) return 'the_wings_initiative';
       if (norm.startsWith('low_priest')) return 'the_low_priest';
+      if (norm.startsWith('koleoso')) return 'koleoso';
 
       return norm;
+    }
+
+    function stripSeriesSuffix(key) {
+      return key.replace(/_(part|pt|vol|volume|book|chapter|season|s|kdrama|cdrama|series|miniseries|complete|full)(_?\d+)*$/ig, '');
     }
 
     function canMergeKeys(keyA, keyB) {
       if (!keyA || !keyB) return false;
       if (keyA === keyB) return true;
+      const baseA = stripSeriesSuffix(keyA);
+      const baseB = stripSeriesSuffix(keyB);
+      if (baseA.length >= 4 && baseA === baseB) return true;
       const [shorter, longer] = keyA.length < keyB.length ? [keyA, keyB] : [keyB, keyA];
-      if (shorter.length >= 5 && longer.startsWith(shorter + '_')) {
+      if (shorter.length >= 4 && longer.startsWith(shorter + '_')) {
         const diff = longer.slice(shorter.length + 1);
-        if (/^(part|pt|vol|volume|book|chapter|season|s|kdrama|cdrama|series|miniseries|complete|full|\d{1,4})(_\d+)*$/i.test(diff)) {
+        if (/^(part|pt|vol|volume|book|chapter|season|s|kdrama|cdrama|series|miniseries|complete|full|\d{1,4})(_?\d+)*$/i.test(diff)) {
           return true;
         }
       }

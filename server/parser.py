@@ -53,6 +53,8 @@ SERIES_PATTERNS = [
     re.compile(r"[sS](?P<season>\d{1,2})[\s\.\-_]*(?:part|pt)[\s\.\-_]*(?P<episode>\d{1,3})", re.IGNORECASE),
     # Season 1 Part 2
     re.compile(r"[sS]eason[\s\.\-_]*(?P<season>\d{1,2})[\s\.\-_]*(?:part|pt)[\s\.\-_]*(?P<episode>\d{1,3})", re.IGNORECASE),
+    # Standalone Part / Pt (assumes Season 1): e.g. "Part 1", "Pt 2"
+    re.compile(r"\b(?:part|pt)[\s\.\-_]*(?P<episode>\d{1,3})\b", re.IGNORECASE),
     # Just Episode / Ep 01 (assumes Season 1)
     re.compile(r"\b(?:[eE]p(?:isode)?|EP)[\s\.\-_]*(?P<episode>\d{1,3})\b"),
     # Standalone E01, E02 (assumes Season 1) (e.g. The.Remarried.Empress.E01.720p)
@@ -163,6 +165,19 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
                     episode_title = None
             break
 
+    # 2b. Episodic detection for bare numeric filenames (e.g. Koleoso.1.mp4 ... Koleoso.10.mp4)
+    if not is_series:
+        bare_ep_match = re.search(r"^(.*?)(?:[\s\.\-_]+(?:ep|episode|part|pt)?[\s\.\-_]*)(\d{1,3})$", name, re.IGNORECASE)
+        if bare_ep_match:
+            pot_title = bare_ep_match.group(1).replace(".", " ").replace("_", " ").strip()
+            pot_num = int(bare_ep_match.group(2))
+            lower_pot = pot_title.lower()
+            if "koleoso" in lower_pot or re.search(r"\b(koleoso|yoruba|yorubahood)\b", lower_pot):
+                is_series = True
+                season = 1
+                episode = pot_num
+                working_name = pot_title
+
     # 3. Detect Year
     year = None
     year_match = YEAR_PATTERN.search(working_name)
@@ -246,10 +261,20 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             clean_title = "Tyler Perry's The Oval"
         elif "zatima" in norm_t:
             clean_title = "Tyler Perry's Zatima"
-        elif norm_t.startswith("the wings") or norm_t.startswith("wings initiative") or norm_t in ("wings", "the wings", "the wings initiative", "wings initiative"):
+        elif (
+            norm_t.startswith("wings")
+            or norm_t.startswith("the wings")
+            or ("wing" in norm_t and ("innovat" in norm_t or "initiat" in norm_t))
+            or norm_t in ("wings", "the wings", "the wings initiative", "wings initiative", "wings innovative")
+        ):
             clean_title = "The Wings Initiative"
         elif norm_t.startswith("the low priest") or norm_t.startswith("low priest"):
             clean_title = "The Low Priest"
+        elif "koleoso" in norm_t:
+            clean_title = "Koleoso"
+            is_series = True
+            if not season:
+                season = 1
         elif norm_t == "friends":
             clean_title = "Friends"
             is_series = True
@@ -364,7 +389,7 @@ def detect_category(raw_filename: str, clean_title: str, is_series: bool) -> str
     # 3. African Cinema & Series (Nollywood / Ghallywood)
     # Notice: NEVER use 'filmhouse' keyword as it is the bot/channel branding!
     african_patterns = [
-        r"\b(nollywood|ghallywood|kumawood|african movie|african series)\b",
+        r"\b(nollywood|ghallywood|kumawood|african movie|african series|koleoso|yoruba|yorubahood)\b",
         r"\b(accra medic|a tribe called judah|jagun jagun|anikulapo|king of boys|the black book)\b",
         r"\b(blood sisters|shanty town|far from home|brotherhood|gangs of lagos|lisabi|breath of life)\b",
         r"\b(olishe|afamefuna|house of ga'a|house of gaa|battle on buka street|wedding party)\b",
