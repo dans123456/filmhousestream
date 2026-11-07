@@ -49,6 +49,10 @@ SERIES_PATTERNS = [
     re.compile(r"(?P<season>\d{1,2})[xX](?P<episode>\d{1,3})"),
     # Season 1 Episode 2, Season 01 Ep 2
     re.compile(r"[sS]eason[\s\.\-_]*(?P<season>\d{1,2})[\s\.\-_]*[eE]p(?:isode)?[\s\.\-_]*(?P<episode>\d{1,3})", re.IGNORECASE),
+    # S01 Part 1, S1 Part 2, S0 Part 1, S01.Part1
+    re.compile(r"[sS](?P<season>\d{1,2})[\s\.\-_]*(?:part|pt)[\s\.\-_]*(?P<episode>\d{1,3})", re.IGNORECASE),
+    # Season 1 Part 2
+    re.compile(r"[sS]eason[\s\.\-_]*(?P<season>\d{1,2})[\s\.\-_]*(?:part|pt)[\s\.\-_]*(?P<episode>\d{1,3})", re.IGNORECASE),
     # Just Episode / Ep 01 (assumes Season 1)
     re.compile(r"\b(?:[eE]p(?:isode)?|EP)[\s\.\-_]*(?P<episode>\d{1,3})\b"),
     # Standalone E01, E02 (assumes Season 1) (e.g. The.Remarried.Empress.E01.720p)
@@ -109,6 +113,8 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             groups = m.groupdict()
             if "season" in groups and groups["season"]:
                 season = int(groups["season"])
+                if season == 0:
+                    season = 1  # S0 with episode or part is almost always a Season 1 typo
             else:
                 season = 1  # Default to Season 1 if only Episode is mentioned
             if "episode" in groups and groups["episode"]:
@@ -244,6 +250,20 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             clean_title = "The Wings Initiative"
         elif norm_t.startswith("the low priest") or norm_t.startswith("low priest"):
             clean_title = "The Low Priest"
+        elif norm_t == "friends":
+            clean_title = "Friends"
+            is_series = True
+            # Special handling for Friends Season 1 two-part episode ("The One with Two Parts", Ep 16 & 17)
+            # Frequently tagged as Friends S0 Part 1 / Part 2 or Friends S01 Part 1 / Part 2
+            lower_raw = raw_filename.lower()
+            if re.search(r"\bpart[\s\.\-_]*1\b", lower_raw) or re.search(r"part1\b", lower_raw):
+                season = 1
+                episode = 16
+                episode_title = "The One with Two Parts: Part 1"
+            elif re.search(r"\bpart[\s\.\-_]*2\b", lower_raw) or re.search(r"part2\b", lower_raw):
+                season = 1
+                episode = 17
+                episode_title = "The One with Two Parts: Part 2"
 
     # 5. Build Human-Readable Display Name
     if is_series:

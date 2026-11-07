@@ -541,6 +541,24 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       border-color: rgba(239, 68, 68, 0.25);
       padding: 0;
     }
+    .btn-edit {
+      width: 40px;
+      flex-shrink: 0;
+      background: rgba(99, 102, 241, 0.15);
+      color: #a5b4fc;
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      padding: 0;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+    }
+    .btn-edit:hover {
+      background: rgba(99, 102, 241, 0.3);
+      border-color: rgba(99, 102, 241, 0.6);
+      transform: translateY(-1px);
+    }
     /* Series Folder Card Styling */
     .series-folder-card {
       width: 100%;
@@ -1066,6 +1084,63 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
     </div>
   </div>
 
+  <!-- Edit Media Metadata Modal -->
+  <div id="editModal" class="auth-overlay" style="display:none;">
+    <div class="auth-card" style="max-width: 380px; text-align: left;">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+        <span style="font-size:1.4rem;">✏️</span>
+        <div>
+          <h2 style="font-size:1.1rem; margin:0; color:#fff;">Edit Media Info</h2>
+          <p style="font-size:0.75rem; color:#94a3b8; margin:0;">Fix title, season, episode, or category</p>
+        </div>
+      </div>
+
+      <input type="hidden" id="editMid">
+
+      <div style="margin-bottom:10px;">
+        <label style="font-size:0.75rem; color:#a5b4fc; font-weight:600; display:block; margin-bottom:4px;">Title</label>
+        <input type="text" id="editTitle" class="auth-input" style="width:100%; box-sizing:border-box; margin:0;" placeholder="e.g. Friends">
+      </div>
+
+      <div style="margin-bottom:10px;">
+        <label style="font-size:0.75rem; color:#a5b4fc; font-weight:600; display:block; margin-bottom:4px;">Type</label>
+        <select id="editIsSeries" class="auth-input" style="width:100%; box-sizing:border-box; margin:0; background:#12141d; color:#fff;" onchange="toggleEditSeriesFields()">
+          <option value="true">📺 TV / Web Series</option>
+          <option value="false">🎬 Movie</option>
+        </select>
+      </div>
+
+      <div id="editSeriesFields" style="display:flex; gap:10px; margin-bottom:10px;">
+        <div style="flex:1;">
+          <label style="font-size:0.75rem; color:#a5b4fc; font-weight:600; display:block; margin-bottom:4px;">Season #</label>
+          <input type="number" id="editSeason" class="auth-input" style="width:100%; box-sizing:border-box; margin:0;" placeholder="1" min="1">
+        </div>
+        <div style="flex:1;">
+          <label style="font-size:0.75rem; color:#a5b4fc; font-weight:600; display:block; margin-bottom:4px;">Episode #</label>
+          <input type="number" id="editEpisode" class="auth-input" style="width:100%; box-sizing:border-box; margin:0;" placeholder="16" min="1">
+        </div>
+      </div>
+
+      <div style="margin-bottom:14px;">
+        <label style="font-size:0.75rem; color:#a5b4fc; font-weight:600; display:block; margin-bottom:4px;">Category Hub</label>
+        <select id="editCategory" class="auth-input" style="width:100%; box-sizing:border-box; margin:0; background:#12141d; color:#fff;">
+          <option value="series">📺 Western TV Series</option>
+          <option value="movies">🎬 Hollywood & Global Movies</option>
+          <option value="anime">⚔️ Anime</option>
+          <option value="kdrama">🌸 K-Drama & Asian Drama</option>
+          <option value="african">🌍 African Cinema & Nollywood</option>
+          <option value="bollywood">👳 Bollywood & Indian</option>
+          <option value="cartoons">🎨 Cartoons & Animation</option>
+        </select>
+      </div>
+
+      <div style="display:flex; gap:8px;">
+        <button onclick="closeEditModal()" class="btn" style="flex:1; background:rgba(255,255,255,0.06); color:#94a3b8;">Cancel</button>
+        <button onclick="submitEditMedia()" class="btn" style="flex:1.5; background:linear-gradient(135deg, #10b981, #059669); color:#fff; font-weight:700;">💾 Save Changes</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     // Initialize Telegram WebApp API if inside Telegram
     if (window.Telegram && window.Telegram.WebApp) {
@@ -1586,6 +1661,76 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       }
     }
 
+    function openEditModal(event, messageId) {
+      if (event) event.stopPropagation();
+      const item = allMedia.find(m => m.message_id === messageId);
+      if (!item) return;
+
+      document.getElementById('editMid').value = messageId;
+      document.getElementById('editTitle').value = item.series_title || item.display_name || item.file_name || '';
+      document.getElementById('editIsSeries').value = item.is_series ? "true" : "false";
+      document.getElementById('editSeason').value = item.season || 1;
+      document.getElementById('editEpisode').value = item.episode || 1;
+      document.getElementById('editCategory').value = item.category || (item.is_series ? 'series' : 'movies');
+
+      toggleEditSeriesFields();
+      document.getElementById('editModal').style.display = 'flex';
+    }
+
+    function toggleEditSeriesFields() {
+      const isSeries = document.getElementById('editIsSeries').value === "true";
+      document.getElementById('editSeriesFields').style.display = isSeries ? 'flex' : 'none';
+      if (!isSeries && document.getElementById('editCategory').value === 'series') {
+        document.getElementById('editCategory').value = 'movies';
+      }
+    }
+
+    function closeEditModal() {
+      document.getElementById('editModal').style.display = 'none';
+    }
+
+    async function submitEditMedia() {
+      const mid = parseInt(document.getElementById('editMid').value);
+      const title = document.getElementById('editTitle').value.trim();
+      const isSeries = document.getElementById('editIsSeries').value === "true";
+      const season = parseInt(document.getElementById('editSeason').value) || 1;
+      const episode = parseInt(document.getElementById('editEpisode').value) || 1;
+      const category = document.getElementById('editCategory').value;
+
+      if (!mid || !title) {
+        alert("Please enter a valid title.");
+        return;
+      }
+
+      closeEditModal();
+      showToast("⏳ Saving changes...");
+
+      try {
+        const res = await fetch('/api/media/edit', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({
+            message_id: mid,
+            title: title,
+            is_series: isSeries,
+            season: isSeries ? season : null,
+            episode: isSeries ? episode : null,
+            category: category
+          })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          showToast("✨ Media updated successfully!");
+          await loadMedia();
+        } else {
+          alert("Error updating media: " + (data.error || "Unknown error"));
+        }
+      } catch (e) {
+        alert("Failed to update media: " + e.message);
+      }
+    }
+
     function renderItemListHtml(items, query) {
       // 1. Group series using smart canonical keys and prefix coalescing
       const seriesGroupList = [];
@@ -1701,6 +1846,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
                               <a href="${ep.watch_url}" onclick="openWithAd(event, '${ep.watch_url}')" class="btn btn-watch" style="min-height:34px; font-size:0.75rem;">▶ Play</a>
                               <a href="${ep.blogger_url}" onclick="openWithAd(event, '${ep.blogger_url}')" class="btn btn-blogger" style="min-height:34px; font-size:0.75rem;">🍿 Blogspot</a>
                               <button onclick="copyToClipboard('${ep.stream_url}')" class="btn btn-copy" style="min-height:34px; font-size:0.75rem;">📋 Link</button>
+                              <button onclick="openEditModal(event, ${ep.message_id})" class="btn btn-edit" style="min-height:34px;" title="Edit Info">✏️</button>
                               <button onclick="deleteMedia(${ep.message_id})" class="btn btn-del" style="min-height:34px;" title="Delete">🗑️</button>
                             </div>
                           </div>
@@ -1775,6 +1921,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
               </div>
               <div class="action-row">
                 <button onclick="copyToClipboard('${item.stream_url}')" class="btn btn-copy">📋 Copy Stream Link</button>
+                <button onclick="openEditModal(event, ${item.message_id})" class="btn btn-edit" title="Edit Info">✏️</button>
                 <button onclick="deleteMedia(${item.message_id})" class="btn btn-del" title="Delete from Storage">🗑️</button>
               </div>
             </div>
@@ -1814,6 +1961,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
                     <a href="${v.watch_url}" onclick="openWithAd(event, '${v.watch_url}')" class="btn btn-watch" style="min-height:30px; font-size:0.75rem; padding:4px 8px;">▶ Play</a>
                     <a href="${v.blogger_url}" onclick="openWithAd(event, '${v.blogger_url}')" class="btn btn-blogger" style="min-height:30px; font-size:0.75rem; padding:4px 8px;">🍿 Blogspot</a>
                     <button onclick="copyToClipboard('${v.stream_url}')" class="btn btn-copy" style="min-height:30px; font-size:0.75rem; padding:4px 8px;">📋 Link</button>
+                    <button onclick="openEditModal(event, ${v.message_id})" class="btn btn-edit" style="min-height:30px; padding:4px 8px;" title="Edit Info">✏️</button>
                     <button onclick="deleteMedia(${v.message_id})" class="btn btn-del" style="min-height:30px; padding:4px 8px;" title="Delete">🗑️</button>
                   </div>
                 </div>

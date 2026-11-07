@@ -96,3 +96,42 @@ def update_tracked_category(message_ids: List[int], category: str):
             json.dump(records, f, indent=2, ensure_ascii=False)
     except Exception as e:
         logger.error(f"Failed to update tracked media category: {e}")
+
+
+def update_tracked_metadata(message_id: int, updates: dict):
+    """Updates metadata (title, season, episode, is_series, category) for a message ID in the local ledger."""
+    _ensure_storage()
+    try:
+        from server.parser import build_golden_filename
+        with open(STORAGE_FILE, "r", encoding="utf-8") as f:
+            records = json.load(f)
+
+        for r in records:
+            if r.get("message_id") == message_id:
+                parsed = r.get("parsed") or {}
+                if "title" in updates and updates["title"]:
+                    parsed["title"] = str(updates["title"]).strip()
+                if "is_series" in updates:
+                    is_s = bool(updates["is_series"])
+                    parsed["is_series"] = is_s
+                    r["is_series"] = is_s
+                if "season" in updates and updates["season"] is not None:
+                    parsed["season"] = int(updates["season"])
+                if "episode" in updates and updates["episode"] is not None:
+                    parsed["episode"] = int(updates["episode"])
+                if "category" in updates and updates["category"]:
+                    cat = str(updates["category"]).strip().lower()
+                    r["category"] = cat
+                    parsed["category"] = cat
+
+                orig_fn = r.get("original_filename") or r.get("file_name", "")
+                golden = build_golden_filename(parsed, orig_fn)
+                parsed["golden_name"] = golden
+                r["file_name"] = golden
+                r["parsed"] = parsed
+                break
+
+        with open(STORAGE_FILE, "w", encoding="utf-8") as f:
+            json.dump(records, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Failed to update tracked media metadata: {e}")

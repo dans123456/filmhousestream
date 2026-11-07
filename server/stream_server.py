@@ -12,7 +12,7 @@ from server.security import (
 )
 from server.parser import parse_filename
 from server.cache import get_cached_chunk, store_cached_chunk, get_cache_stats
-from bot.storage import get_tracked_files, remove_tracked_files, update_tracked_category
+from bot.storage import get_tracked_files, remove_tracked_files, update_tracked_category, update_tracked_metadata
 from server.library_template import LIBRARY_HTML
 import urllib.parse
 import config
@@ -836,6 +836,28 @@ async def handle_api_category(request: web.Request) -> web.Response:
         return web.json_response({"success": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
 
 
+async def handle_api_edit(request: web.Request) -> web.Response:
+    """Updates metadata (title, season, episode, is_series, category) for a media item (ADMIN ONLY)."""
+    if not check_rate_limit(request, max_requests=30, window_sec=60):
+        return web.json_response({"success": False, "error": "Rate limit exceeded."}, status=429, headers={"Access-Control-Allow-Origin": "*"})
+
+    if not verify_admin_access(request):
+        return web.json_response({"success": False, "error": "Unauthorized: FilmHouse Admin authorization required."}, status=401, headers={"Access-Control-Allow-Origin": "*"})
+
+    try:
+        data = await request.json()
+        mid = data.get("message_id")
+        if not mid:
+            return web.json_response({"success": False, "error": "Missing message_id."}, status=400, headers={"Access-Control-Allow-Origin": "*"})
+
+        mid = int(mid)
+        update_tracked_metadata(mid, data)
+        return web.json_response({"success": True, "message_id": mid}, headers={"Access-Control-Allow-Origin": "*"})
+    except Exception as e:
+        logger.error(f"Error in handle_api_edit: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
+
+
 def create_stream_app() -> web.Application:
     """Builds and returns the aiohttp web application with route aliases."""
     app = web.Application()
@@ -849,6 +871,8 @@ def create_stream_app() -> web.Application:
     app.router.add_route("OPTIONS", "/api/media/delete", handle_cors_options)
     app.router.add_post("/api/media/category", handle_api_category)
     app.router.add_route("OPTIONS", "/api/media/category", handle_cors_options)
+    app.router.add_post("/api/media/edit", handle_api_edit)
+    app.router.add_route("OPTIONS", "/api/media/edit", handle_cors_options)
     
     app.router.add_get("/watch/{token}", handle_watch)
     
