@@ -1483,15 +1483,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           const normKey = getCanonicalSeriesKey(rawTitle);
           if (!normKey) return;
 
-          let matchGroup = seriesGroupList.find(g => {
-            if (g.canonicalKey === normKey) return true;
-            const shorter = g.canonicalKey.length < normKey.length ? g.canonicalKey : normKey;
-            const longer = g.canonicalKey.length < normKey.length ? normKey : g.canonicalKey;
-            if (shorter.length >= 8 && longer.startsWith(shorter + '_')) {
-              return true;
-            }
-            return false;
-          });
+          let matchGroup = seriesGroupList.find(g => g.canonicalKey === normKey);
 
           if (!matchGroup) {
             matchGroup = {
