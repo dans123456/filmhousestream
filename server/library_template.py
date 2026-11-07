@@ -1324,6 +1324,11 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       if (norm.includes('the_oval') || norm === 'oval') return 'tyler_perrys_the_oval';
       if (norm.includes('zatima')) return 'tyler_perrys_zatima';
       if (norm.startsWith('the_wings') || norm.startsWith('wings_initiative') || norm === 'wings') return 'the_wings_initiative';
+      if (norm.startsWith('the_low_priest') || norm.startsWith('low_priest')) return 'the_low_priest';
+      // Strip leading "the_" if followed by words so "The X" and "X" unite cleanly
+      if (norm.startsWith('the_') && norm.length > 5) {
+        norm = norm.substring(4);
+      }
       return norm;
     }
 
