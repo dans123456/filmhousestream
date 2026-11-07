@@ -109,6 +109,51 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       color: #fff;
       border-color: #6366f1;
     }
+    .btn-refresh {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.2s ease;
+      user-select: none;
+      white-space: nowrap;
+    }
+    .btn-refresh:hover:not(:disabled) {
+      background: rgba(16, 185, 129, 0.25);
+      border-color: rgba(16, 185, 129, 0.55);
+      transform: translateY(-1px);
+    }
+    .btn-refresh:active:not(:disabled) {
+      transform: translateY(0);
+    }
+    .btn-refresh:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .refresh-icon {
+      display: inline-block;
+      font-size: 0.82rem;
+      line-height: 1;
+    }
+    .refresh-icon.spinning {
+      animation: spinRefresh 0.75s linear infinite;
+    }
+    @keyframes spinRefresh {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    @media (max-width: 400px) {
+      .btn-refresh .refresh-text {
+        display: none;
+      }
+    }
     .search-box {
       width: 100%;
       position: relative;
@@ -947,6 +992,10 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       </div>
       <div class="header-actions">
         <span id="statsBadge" class="stats-badge">Loading...</span>
+        <button id="refreshBtn" class="btn-refresh" onclick="refreshLibrary(event)" title="Refresh library without reloading the page">
+          <span class="refresh-icon" id="refreshIcon">🔄</span>
+          <span class="refresh-text">Refresh</span>
+        </button>
         <button id="selectToggleBtn" class="btn-select-toggle" onclick="toggleSelectMode()">☑️ Select</button>
       </div>
     </div>
@@ -1104,7 +1153,24 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       return headers;
     }
 
-    async function loadMedia() {
+    async function refreshLibrary(event) {
+      if (event) event.stopPropagation();
+      const btn = document.getElementById('refreshBtn');
+      const icon = document.getElementById('refreshIcon');
+      if (btn) btn.disabled = true;
+      if (icon) icon.classList.add('spinning');
+
+      try {
+        await loadMedia(true);
+      } finally {
+        setTimeout(() => {
+          if (btn) btn.disabled = false;
+          if (icon) icon.classList.remove('spinning');
+        }, 400);
+      }
+    }
+
+    async function loadMedia(isManualRefresh = false) {
       try {
         const res = await fetch('/api/media', {
           headers: getAuthHeaders()
@@ -1127,6 +1193,10 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         updateCategoryCounts();
         renderMedia();
 
+        if (isManualRefresh) {
+          showToast(`🔄 Library refreshed! (${allMedia.length} titles)`);
+        }
+
         // Quietly preload Monetag ad in background
         try {
           if (typeof show_12146431 === 'function') {
@@ -1134,7 +1204,11 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           }
         } catch(e) {}
       } catch (e) {
-        document.getElementById('mediaGrid').innerHTML = '<div class="empty-state">Failed to load media. Check network connection.</div>';
+        if (isManualRefresh) {
+          showToast('⚠️ Refresh failed. Check network connection.');
+        } else {
+          document.getElementById('mediaGrid').innerHTML = '<div class="empty-state">Failed to load media. Check network connection.</div>';
+        }
       }
     }
 
