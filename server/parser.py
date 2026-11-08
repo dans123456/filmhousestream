@@ -201,8 +201,9 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
     # Strip empty parentheses and brackets: e.g. "()", "[]"
     clean_title = re.sub(r"\(\s*\)|\[\s*\]", "", clean_title)
 
-    # Strip trailing scene release group names (e.g. "-PlayfulDarkness", "-Galaxy", "-eng")
-    clean_title = re.sub(r"\s*-\s*[\w\d]{2,}$", "", clean_title)
+    # Strip trailing scene release group names (e.g. "-PlayfulDarkness", "-Galaxy", "-eng"), preserving titles like Black-ish
+    clean_title = re.sub(r"\s+-\s*(?!ish\b)[\w\d]{2,}$", "", clean_title, flags=re.IGNORECASE)
+    clean_title = re.sub(r"-(?!ish\b)[\w\d]{3,}$", "", clean_title, flags=re.IGNORECASE)
 
     clean_title = re.sub(r"\s+", " ", clean_title).strip(" -_")
 
@@ -245,6 +246,24 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             clean_title = "Nymphomaniac: Vol. II"
         elif lower_t in ("its okay", "it's okay"):
             clean_title = "It's Okay!"
+
+        # Acronyms, compound titles, and collapsed aliases
+        collapsed = re.sub(r"[^a-z0-9]", "", lower_t)
+        if collapsed == "utd":
+            clean_title = "Under the Dome"
+            is_series = True
+        elif collapsed == "tvd":
+            clean_title = "The Vampire Diaries"
+            is_series = True
+        elif collapsed == "blackish" or (collapsed == "black" and is_series and season and season > 1):
+            clean_title = "Black-ish"
+            is_series = True
+        elif collapsed == "grownish":
+            clean_title = "Grown-ish"
+            is_series = True
+        elif collapsed == "mixedish":
+            clean_title = "Mixed-ish"
+            is_series = True
 
         # Canonical Series Normalization (unifies truncated titles and missing apostrophes)
         norm_t = re.sub(r"['’`]", "", lower_t)

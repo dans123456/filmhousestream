@@ -1569,6 +1569,11 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       if (norm.startsWith('wings') || (norm.includes('wing') && (norm.includes('innovat') || norm.includes('initiat')))) return 'the_wings_initiative';
       if (norm.startsWith('low_priest')) return 'the_low_priest';
       if (norm.startsWith('koleoso')) return 'koleoso';
+      if (norm === 'black_ish' || norm === 'blackish' || norm === 'black') return 'black_ish';
+      if (norm === 'grown_ish' || norm === 'grownish') return 'grown_ish';
+      if (norm === 'mixed_ish' || norm === 'mixedish') return 'mixed_ish';
+      if (norm === 'utd' || norm === 'under_the_dome') return 'under_the_dome';
+      if (norm === 'tvd' || norm === 'vampire_diaries' || norm === 'the_vampire_diaries') return 'the_vampire_diaries';
 
       return norm;
     }
@@ -1595,6 +1600,13 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
 
     function getCleanFolderTitle(rawTitle) {
       if (!rawTitle) return '';
+      const col = String(rawTitle).toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (col === 'blackish' || col === 'black') return 'Black-ish';
+      if (col === 'grownish') return 'Grown-ish';
+      if (col === 'mixedish') return 'Mixed-ish';
+      if (col === 'utd' || col === 'underthedome') return 'Under the Dome';
+      if (col === 'tvd' || col === 'thevampirediaries' || col === 'vampirediaries') return 'The Vampire Diaries';
+
       let clean = String(rawTitle).trim();
       for (let i = 0; i < 3; i++) {
         clean = clean.replace(/\(\s*(part|pt|vol|volume|book|chapter|season|s)\s*\d*\s*\)/gi, '');
