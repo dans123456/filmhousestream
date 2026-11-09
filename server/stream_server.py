@@ -785,10 +785,10 @@ async def handle_api_media(request: web.Request) -> web.Response:
         return web.json_response({
             "success": False,
             "error": str(e)
-        }, status=500, headers={"Access-Control-Allow-Origin": "*"})
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
-    })
+        }, status=500, headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
+        })
 
 
 async def handle_api_delete(request: web.Request) -> web.Response:
