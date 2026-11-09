@@ -70,10 +70,14 @@ def is_authorized(user_id: int) -> bool:
 
 
 def build_blogspot_url(stream_url: str, title: str) -> str:
-    """Builds the direct Blogspot player URL with Monetag ads."""
+    """Builds the direct Web Player URL."""
     encoded_stream = urllib.parse.quote(stream_url, safe="")
     encoded_title = urllib.parse.quote(title, safe="")
-    return f"{config.BLOGGER_URL}/?watch={encoded_stream}&title={encoded_title}"
+    base = config.BLOGGER_URL.rstrip("/")
+    sep = "&" if "?" in base else "?"
+    if base.endswith(".html"):
+        return f"{base}{sep}watch={encoded_stream}&title={encoded_title}"
+    return f"{base}/{sep}watch={encoded_stream}&title={encoded_title}"
 
 
 def get_main_menu_keyboard() -> InlineKeyboardMarkup:
@@ -81,7 +85,7 @@ def get_main_menu_keyboard() -> InlineKeyboardMarkup:
     library_url = f"{config.SERVER_URL}/library"
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📱 Open Media Library (WebApp)", web_app=WebAppInfo(url=library_url))],
-        [InlineKeyboardButton("🍿 FilmHouse Blogspot", url=config.BLOGGER_URL)],
+        [InlineKeyboardButton("🍿 FilmHouse Web Player", url=config.BLOGGER_URL)],
         [
             InlineKeyboardButton("⚙️ Server Status", callback_data="status_check"),
             InlineKeyboardButton("ℹ️ How to Use", callback_data="help_menu"),

@@ -1967,7 +1967,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
                           <div class="card-actions" style="margin-top:2px;">
                             <div class="action-row">
                               <a href="${ep.watch_url}" onclick="openWithAd(event, '${ep.watch_url}')" class="btn btn-watch" style="min-height:32px; font-size:0.75rem;">▶ Play</a>
-                              <a href="${ep.blogger_url}" onclick="openWithAd(event, '${ep.blogger_url}')" class="btn btn-blogger" style="min-height:32px; font-size:0.75rem;">🍿 Blogspot</a>
+                              <a href="${ep.blogger_url}" onclick="openWithAd(event, '${ep.blogger_url}')" class="btn btn-blogger" style="min-height:32px; font-size:0.75rem;">🍿 Player</a>
                             </div>
                             <div class="action-row">
                               <button onclick="copyToClipboard('${ep.stream_url}')" class="btn btn-copy" style="min-height:32px; font-size:0.75rem;">📋 Link</button>
@@ -2042,7 +2042,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
             <div class="card-actions">
               <div class="action-row">
                 <a href="${item.watch_url}" onclick="openWithAd(event, '${item.watch_url}')" class="btn btn-watch">▶ Play Stream</a>
-                <a href="${item.blogger_url}" onclick="openWithAd(event, '${item.blogger_url}')" class="btn btn-blogger">🍿 Blogspot</a>
+                <a href="${item.blogger_url}" onclick="openWithAd(event, '${item.blogger_url}')" class="btn btn-blogger">🍿 Player</a>
               </div>
               <div class="action-row">
                 <button onclick="copyToClipboard('${item.stream_url}')" class="btn btn-copy">📋 Copy Stream Link</button>
@@ -2084,7 +2084,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
                   </div>
                   <div class="quality-version-actions">
                     <a href="${v.watch_url}" onclick="openWithAd(event, '${v.watch_url}')" class="btn btn-watch" style="min-height:30px; font-size:0.75rem; padding:4px 8px;">▶ Play</a>
-                    <a href="${v.blogger_url}" onclick="openWithAd(event, '${v.blogger_url}')" class="btn btn-blogger" style="min-height:30px; font-size:0.75rem; padding:4px 8px;">🍿 Blogspot</a>
+                    <a href="${v.blogger_url}" onclick="openWithAd(event, '${v.blogger_url}')" class="btn btn-blogger" style="min-height:30px; font-size:0.75rem; padding:4px 8px;">🍿 Player</a>
                     <button onclick="copyToClipboard('${v.stream_url}')" class="btn btn-copy" style="min-height:30px; font-size:0.75rem; padding:4px 8px;">📋 Link</button>
                     <button onclick="openEditModal(event, ${v.message_id})" class="btn btn-edit" style="min-height:30px; padding:4px 8px;" title="Edit Info">✏️</button>
                     <button onclick="deleteMedia(${v.message_id})" class="btn btn-del" style="min-height:30px; padding:4px 8px;" title="Delete">🗑️</button>

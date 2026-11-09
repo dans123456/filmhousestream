@@ -716,7 +716,12 @@ async def handle_api_media(request: web.Request) -> web.Response:
         watch_url = f"{config.SERVER_URL}/watch/{token}"
         encoded_stream = urllib.parse.quote(stream_url, safe="")
         encoded_title = urllib.parse.quote(parsed.get("title", fn), safe="")
-        blogger_url = f"{config.BLOGGER_URL}/?watch={encoded_stream}&title={encoded_title}"
+        base_player = config.BLOGGER_URL.rstrip("/")
+        sep = "&" if "?" in base_player else "?"
+        if base_player.endswith(".html"):
+            blogger_url = f"{base_player}{sep}watch={encoded_stream}&title={encoded_title}"
+        else:
+            blogger_url = f"{base_player}/{sep}watch={encoded_stream}&title={encoded_title}"
 
         category = r.get("category")
         # Self-healing fallback:
