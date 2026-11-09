@@ -4,7 +4,7 @@ from typing import Dict, Any, Optional
 # Common garbage tags to strip from titles
 CLEANUP_TAGS = [
     r"@[\w\d_\-\.]+",  # Telegram handles like @pharaohsofm
-    r"\b(2160p|4k|1080p|1080i|720p|576p|480p|360p|240p)\b",
+    r"\b(2160p|4k|1080p|1080i|720p|576p|480p|360p|240p|bd1080p|bd720p|bd480p)\b",
     r"\b(uhd|fhd|hd|sd|hq)\b",
     r"\b(hd-in|hd_in|hdin|hd-tc|hdtc|hd-cam|hdcam|hd-ts|hdts|hdtv|hdrip)\b",
     r"\b(bluray|blu-ray|web-dl|webdl|web-rip|webrip|dvdrip|brrip|bdrip|camrip|web|dvd)\b",
@@ -35,6 +35,33 @@ GARBAGE_EPISODE_WORDS = {
     "2ch", "6ch"
 }
 
+FIXIES_PHRASES = (
+    "remote and the barcode", "robot and friction", "pen and noliks cube", "refrigerator and the airbag",
+    "oven and the magnifying glass", "paper and the knots", "microphone and the mixer", "music box and modelling clay",
+    "magnet and the doorbell", "magic wand and the chain reaction", "magifying glass and the zipper", "lever and the microwave",
+    "lie detector and tubes", "keyboard and the catapult", "globe and the disguise", "instructions and the shadow play",
+    "electric kettle and the hair dryer", "flashlight and the prosthesis", "drain and the motion sensor", "and the keycard",
+    "draftsmen and the internet", "compass and the washing machine", "constructor set", "combination lock and the wires",
+    "cartoon and the alarm", "cell phone and the night light", "can and the piggy bank", "balloon and the batteries",
+    "armor and the dog", "baby monitor", "alarm clock and the talking doll", "aquarium and the drum", "level and the camera",
+    "sms and the laboratory", "chess and the stain", "invisible ink and the gramophone", "candy and the chick",
+    "tideesh", "why do fixies", "who are the fixies", "what is friction", "where do fixies", "pack-o-mat",
+    "dangerous place for fixies", "meet professor eugenius", "how do talking dolls", "teach their kids", "save electricity",
+    "whipped cream and the kaleidoscope", "video call and the bee", "vacuum and the manipulator", "toothbrush and the antenna",
+    "tools and the fixiphone", "thermometer and the pack o mat", "thermos and the electric train", "stapler and the suction cup",
+    "spare part and the team", "short circuit and gps", "solar battery and the crowbar", "scale and the mirror",
+    "screws and the ecotester"
+)
+
+VEGGIETALES_PHRASES = (
+    "penniless princess", "lyle the kindly viking", "stnicholas", "pistachio", "wheres god when im scared",
+    "sweetpeabeauty", "sillysongcountdown", "girl who became queen", "autotainment", "star of christmas",
+    "toy that saved christmas", "sumo of the opera", "little joe", "rack shack and benny", "sheerluck holmes",
+    "moe and the big exit", "madam blueberry", "samsons hairbrush", "lord of the beans", "josh and the big wall",
+    "king george and the ducky", "great pie war", "forgive them", "are you my neighbor", "giant pickle",
+    "easter carol", "snoodles tale"
+)
+
 # Patterns for Season and Episode detection
 SERIES_PATTERNS = [
     # Multi-episode: S01E01-E02, S01E01-02, S01E01E02, S01E01 - E02
@@ -55,6 +82,12 @@ SERIES_PATTERNS = [
     re.compile(r"[sS]eason[\s\.\-_]*(?P<season>\d{1,2})[\s\.\-_]*(?:part|pt)[\s\.\-_]*(?P<episode>\d{1,3})", re.IGNORECASE),
     # Standalone Part / Pt (assumes Season 1): e.g. "Part 1", "Pt 2"
     re.compile(r"\b(?:part|pt)[\s\.\-_]*(?P<episode>\d{1,3})\b", re.IGNORECASE),
+    # Spanish/Portuguese/French: T1 Episodio 01, T02 Episodio 60, T1 Ep 01, T01E02, T1 01
+    re.compile(r"\b[tT](?P<season>\d{1,2})[\s\.\-_]*(?:episodio|capitulo|episode|ep|e)?[\s\.\-_]*(?P<episode>\d{1,3})\b", re.IGNORECASE),
+    # Temporada 1 Episodio 02
+    re.compile(r"\b[tT]emporada[\s\.\-_]*(?P<season>\d{1,2})[\s\.\-_]*(?:episodio|capitulo|episode|ep|e)?[\s\.\-_]*(?P<episode>\d{1,3})\b", re.IGNORECASE),
+    # Anime Dash-Episode format: e.g. "Tonari.No.Kaibutsu-kun.-.13.Bd1080p.F.mkv", "Show Name - 01"
+    re.compile(r"[\s\.\-_]+-[\s\.\-_]+(?P<episode>\d{1,3})(?:[\s\.\-_]|\b)"),
     # Just Episode / Ep 01 (assumes Season 1)
     re.compile(r"\b(?:[eE]p(?:isode)?|EP)[\s\.\-_]*(?P<episode>\d{1,3})\b"),
     # Standalone E01, E02 (assumes Season 1) (e.g. The.Remarried.Empress.E01.720p)
@@ -64,7 +97,7 @@ SERIES_PATTERNS = [
 # Pattern for bare episode names with no show name (e.g. "01", "02", "Ep 03", "Episode 4", "S01E05")
 BARE_EPISODE_REGEX = re.compile(r"^[\s\.\-_]*(?:[sS]\d{1,2}[\s\.\-_]*)?(?:[eE]p(?:isode)?|EP|\d{1,3})[\s\.\-_0-9]*$", re.IGNORECASE)
 
-QUALITY_PATTERN = re.compile(r"\b(2160p|4K|1080p|720p|480p)\b", re.IGNORECASE)
+QUALITY_PATTERN = re.compile(r"\b(2160p|4K|1080p|720p|480p|bd1080p|bd720p|bd480p)\b", re.IGNORECASE)
 YEAR_PATTERN = re.compile(r"\b(19\d{2}|20\d{2})\b")
 
 
@@ -96,8 +129,17 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
     # 1. Detect Quality
     quality_match = QUALITY_PATTERN.search(working_name)
     if quality_match:
-        matched_str = quality_match.group(1)
-        quality = "4K" if matched_str.upper() in ("4K", "2160P") else matched_str.lower()
+        matched_str = quality_match.group(1).lower()
+        if matched_str in ("4k", "2160p"):
+            quality = "4K"
+        elif "1080p" in matched_str:
+            quality = "1080p"
+        elif "720p" in matched_str:
+            quality = "720p"
+        elif "480p" in matched_str:
+            quality = "480p"
+        else:
+            quality = matched_str
     else:
         quality = None
 
@@ -265,6 +307,27 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             clean_title = "Mixed-ish"
             is_series = True
 
+        # Check The Fixies (bilingual Russian/English episodic titles)
+        lower_raw = raw_filename.lower()
+        if (
+            "fixie" in lower_t
+            or "fixies" in lower_t
+            or "tideesh" in lower_t
+            or any(p in lower_t for p in FIXIES_PHRASES)
+            or (re.search(r"[\u0400-\u04FF]", raw_filename) and any(w in lower_t for w in ("remote", "robot", "pen", "refrigerator", "oven", "paper", "microphone", "magnet", "lever", "keyboard", "globe", "flashlight", "drain", "compass", "alarm", "aquarium", "chess", "candy", "screws", "sensor", "vacuum", "tools", "thermometer", "thermos", "stapler", "battery", "mirror")))
+        ):
+            clean_title = "The Fixies"
+            is_series = True
+            if not season:
+                season = 1
+
+        # Check VeggieTales (franchise movies and episodes)
+        elif lower_raw.startswith("veggietales") or any(p in lower_t for p in VEGGIETALES_PHRASES):
+            clean_title = "VeggieTales"
+            is_series = True
+            if not season:
+                season = 1
+
         # Canonical Series Normalization (unifies truncated titles and missing apostrophes)
         norm_t = re.sub(r"['’`]", "", lower_t)
         norm_t = re.sub(r"&", "and", norm_t)
@@ -308,6 +371,34 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
                 season = 8
                 episode = 24
                 episode_title = "The One Where Rachel Has a Baby: Part 2"
+        elif lower_t in ("the", "the series") and is_series:
+            clean_title = "The Vampire Diaries"
+        elif "tonari no kaibutsu" in norm_t or "kaibutsu" in norm_t:
+            clean_title = "Tonari no Kaibutsu-kun"
+            is_series = True
+            if not season:
+                season = 1
+        elif "adthe bible" in norm_t or "ad the bible" in norm_t or "a d the bible" in norm_t:
+            clean_title = "A.D. The Bible Continues"
+            is_series = True
+        elif "nero the assassin" in norm_t or "néro the assassin" in lower_t:
+            clean_title = "Néro The Assassin"
+            is_series = True
+        elif norm_t.startswith("the testaments") or norm_t in ("testament", "testaments"):
+            clean_title = "The Testaments"
+            is_series = True
+        elif norm_t.startswith("aiyetoro"):
+            clean_title = "Aiyetoro Town"
+            is_series = True
+        elif norm_t.startswith("anikulapo"):
+            clean_title = "Aníkúlápó: Rise of the Spectre"
+            is_series = True
+        elif "legend of aang" in norm_t or "aang t l a" in norm_t or "aang tla" in norm_t:
+            clean_title = "Avatar Aang: The Last Airbender"
+            is_series = True
+        elif norm_t.startswith("noobees"):
+            clean_title = "Noobees"
+            is_series = True
 
     # 5. Build Human-Readable Display Name
     if is_series:
@@ -381,7 +472,7 @@ def detect_category(raw_filename: str, clean_title: str, is_series: bool) -> str
     # 1. Anime
     anime_patterns = [
         r"\[(subsplease|erai-raws|judas|asw|horriblesubs|commie|ember|kayo|neohevc|cleo|pas)\]",
-        r"\b(anime|manga|otaku)\b",
+        r"\b(anime|manga|otaku|tonari no kaibutsu|kaibutsu-kun|kaibutsu kun)\b",
         r"\b(jap|japanese)\b",
         r"\b(solo leveling|demon slayer|kimetsu no yaiba|jujutsu kaisen|attack on titan|shingeki no kyojin)\b",
         r"\b(naruto|boruto|one piece|bleach|chainsaw man|death note|my hero academia|boku no hero)\b",
@@ -409,7 +500,7 @@ def detect_category(raw_filename: str, clean_title: str, is_series: bool) -> str
     # Notice: NEVER use 'filmhouse' keyword as it is the bot/channel branding!
     african_patterns = [
         r"\b(nollywood|ghallywood|kumawood|african movie|african series|koleoso|yoruba|yorubahood)\b",
-        r"\b(accra medic|a tribe called judah|jagun jagun|anikulapo|king of boys|the black book)\b",
+        r"\b(accra medic|a tribe called judah|jagun jagun|anikulapo|king of boys|the black book|aiyetoro)\b",
         r"\b(blood sisters|shanty town|far from home|brotherhood|gangs of lagos|lisabi|breath of life)\b",
         r"\b(olishe|afamefuna|house of ga'a|house of gaa|battle on buka street|wedding party)\b",
         r"\b(accra|ghanaian|nigerian)\b",
@@ -429,7 +520,7 @@ def detect_category(raw_filename: str, clean_title: str, is_series: bool) -> str
 
     # 5. Cartoons & Western Animation
     cartoon_patterns = [
-        r"\b(disney|pixar|dreamworks|illumination|nickelodeon|cartoon network)\b",
+        r"\b(disney|pixar|dreamworks|illumination|nickelodeon|cartoon network|the fixies|fixies|veggietales|avatar aang|the last airbender)\b",
         r"\b(moana|inside out|kung fu panda|despicable me|minions|toy story|frozen|shrek|zootopia)\b",
         r"\b(spider-man across the spider-verse|spider-man into the spider-verse|puss in boots|sing 2)\b",
         r"\b(encanto|coco|the lion king|madagascar|ice age|cars|ratatouille|finding nemo|the incredibles)\b",

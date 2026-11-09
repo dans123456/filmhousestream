@@ -1573,7 +1573,17 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       if (norm === 'grown_ish' || norm === 'grownish') return 'grown_ish';
       if (norm === 'mixed_ish' || norm === 'mixedish') return 'mixed_ish';
       if (norm === 'utd' || norm === 'under_the_dome') return 'under_the_dome';
-      if (norm === 'tvd' || norm === 'vampire_diaries' || norm === 'the_vampire_diaries') return 'the_vampire_diaries';
+      if (norm === 'tvd' || norm === 'vampire_diaries' || norm === 'the_vampire_diaries' || norm === 'the') return 'the_vampire_diaries';
+      if (norm.startsWith('noobees')) return 'noobees';
+      if (norm.includes('adthe_bible') || norm.includes('ad_the_bible') || norm.includes('a_d_the_bible')) return 'a_d_the_bible_continues';
+      if (norm.includes('kaibutsu') || norm === 'my_little_monster') return 'my_little_monster';
+      if (norm.includes('fixie') || norm === 'the_fixies') return 'the_fixies';
+      if (norm.startsWith('veggietales')) return 'veggietales';
+      if (norm.includes('anikulapo')) return 'anikulapo_rise_of_the_spectre';
+      if (norm.startsWith('aiyetoro')) return 'aiyetoro_town';
+      if (norm.startsWith('testament')) return 'the_testaments';
+      if (norm.includes('aang') || norm.includes('airbender')) return 'avatar_aang_the_last_airbender';
+      if (norm.includes('nero_the_assassin')) return 'nero_the_assassin';
 
       return norm;
     }
@@ -1605,7 +1615,17 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       if (col === 'grownish') return 'Grown-ish';
       if (col === 'mixedish') return 'Mixed-ish';
       if (col === 'utd' || col === 'underthedome') return 'Under the Dome';
-      if (col === 'tvd' || col === 'thevampirediaries' || col === 'vampirediaries') return 'The Vampire Diaries';
+      if (col === 'tvd' || col === 'thevampirediaries' || col === 'vampirediaries' || col === 'the') return 'The Vampire Diaries';
+      if (col.startsWith('noobees')) return 'Noobees';
+      if (col.includes('adthebible') || col.includes('adthebiblecontinues')) return 'A.D. The Bible Continues';
+      if (col.includes('kaibutsu') || col === 'mylittlemonster') return 'My Little Monster';
+      if (col.includes('fixie') || col === 'thefixies') return 'The Fixies';
+      if (col.startsWith('veggietales')) return 'VeggieTales';
+      if (col.includes('anikulapo')) return 'Aníkúlápó: Rise of the Spectre';
+      if (col.startsWith('aiyetoro')) return 'Aiyetoro Town';
+      if (col.startsWith('testament')) return 'The Testaments';
+      if (col.includes('aang') || col.includes('airbender')) return 'Avatar Aang: The Last Airbender';
+      if (col.includes('nerotheassassin')) return 'Néro The Assassin';
 
       let clean = String(rawTitle).trim();
       for (let i = 0; i < 3; i++) {
