@@ -50,7 +50,11 @@ FIXIES_PHRASES = (
     "whipped cream and the kaleidoscope", "video call and the bee", "vacuum and the manipulator", "toothbrush and the antenna",
     "tools and the fixiphone", "thermometer and the pack o mat", "thermos and the electric train", "stapler and the suction cup",
     "spare part and the team", "short circuit and gps", "solar battery and the crowbar", "scale and the mirror",
-    "screws and the ecotester"
+    "screws and the ecotester", "different kinds of robots", "different uses for sensors", "how does a drain trap work",
+    "how does a microphone work", "how does a mobile phone work", "how does a motion sensor work",
+    "how does a remote work", "how does a vacuum work", "how does an alarm clock work",
+    "how does a keycard work", "how does a lever work", "our world without friction",
+    "what cant you put in a microwave", "hockeys our game", "my smart phone", "telephone is ringing"
 )
 
 VEGGIETALES_PHRASES = (
@@ -316,6 +320,8 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             or any(p in lower_t for p in FIXIES_PHRASES)
             or (re.search(r"[\u0400-\u04FF]", raw_filename) and any(w in lower_t for w in ("remote", "robot", "pen", "refrigerator", "oven", "paper", "microphone", "magnet", "lever", "keyboard", "globe", "flashlight", "drain", "compass", "alarm", "aquarium", "chess", "candy", "screws", "sensor", "vacuum", "tools", "thermometer", "thermos", "stapler", "battery", "mirror")))
         ):
+            if not episode_title and clean_title != "The Fixies":
+                episode_title = clean_title
             clean_title = "The Fixies"
             is_series = True
             if not season:
