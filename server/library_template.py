@@ -1328,6 +1328,29 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       }
     }
 
+    function safeParseJson(rawText) {
+      if (!rawText) return null;
+      try {
+        return JSON.parse(rawText);
+      } catch (e) {
+        const sIdx = rawText.indexOf('{');
+        const eIdx = rawText.lastIndexOf('}');
+        if (sIdx !== -1 && eIdx > sIdx) {
+          try {
+            return JSON.parse(rawText.substring(sIdx, eIdx + 1));
+          } catch (inner) {}
+        }
+        const aIdx = rawText.indexOf('[');
+        const aeIdx = rawText.lastIndexOf(']');
+        if (aIdx !== -1 && aeIdx > aIdx) {
+          try {
+            return JSON.parse(rawText.substring(aIdx, aeIdx + 1));
+          } catch (inner) {}
+        }
+        throw new Error(rawText.substring(0, 30));
+      }
+    }
+
     async function loadMedia(isManualRefresh = false) {
       try {
         const tgInit = window.Telegram?.WebApp?.initData || '';
@@ -1350,8 +1373,9 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           return;
         }
 
-        const data = await res.json();
-        if (!data.success) {
+        const rawText = await res.text();
+        const data = safeParseJson(rawText);
+        if (!data || !data.success) {
           showAuthModal();
           return;
         }
@@ -1399,15 +1423,20 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         });
 
         if (res.ok) {
-          err.style.display = 'none';
-          hideAuthModal();
-          const data = await res.json();
-          allMedia = data.items || [];
-          document.getElementById('statsBadge').textContent = `${allMedia.length} Titles`;
-          updateCategoryCounts();
-          renderMedia();
-        } else {
-          err.textContent = '❌ Incorrect Admin Passcode or Unauthorized Account.';
+          const rawText = await res.text();
+          const data = safeParseJson(rawText);
+          if (data && data.success) {
+            err.style.display = 'none';
+            hideAuthModal();
+            allMedia = data.items || [];
+            document.getElementById('statsBadge').textContent = `${allMedia.length} Titles`;
+            updateCategoryCounts();
+            renderMedia();
+            return;
+          }
+        }
+        err.textContent = '❌ Incorrect Admin Passcode or Unauthorized Account.';
+        err.style.display = 'block';
           err.style.display = 'block';
         }
       } catch (e) {
