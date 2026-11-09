@@ -653,8 +653,8 @@ async def handle_cors_options(request: web.Request) -> web.Response:
 
 async def handle_api_media(request: web.Request) -> web.Response:
     """Returns JSON array of all tracked media items (ADMIN ONLY)."""
-    # 1. Rate limiting & anti-abuse
-    if not check_rate_limit(request, max_requests=60, window_sec=60):
+    # 1. Rate limiting & anti-abuse (relaxed to 120 requests/min for smooth admin browsing)
+    if not check_rate_limit(request, max_requests=120, window_sec=60):
         return web.json_response(
             {"success": False, "error": "Rate limit exceeded. Please wait a moment."},
             status=429,
@@ -672,97 +672,120 @@ async def handle_api_media(request: web.Request) -> web.Response:
             }
         )
 
-    records = get_tracked_files()
-    items = []
-    for r in records:
-        mid = r["message_id"]
-        fn = r.get("file_name", f"video_{mid}.mp4")
-        stored_parsed = r.get("parsed") or {}
+    try:
+        records = get_tracked_files()
+        items = []
+        for r in records:
+            try:
+                mid = r.get("message_id")
+                if not mid:
+                    continue
+                fn = r.get("file_name") or r.get("original_filename") or f"video_{mid}.mp4"
+                stored_parsed = r.get("parsed") or {}
 
-        # 1. Parse from filename using our smart parser
-        parsed = parse_filename(fn)
+                # 1. Parse from filename using our smart parser
+                parsed = parse_filename(fn)
 
-        # 2. Canonical title healing:
-        # If filename parsing yields a valid title, keep it clean and stripped of part/noise tags.
-        # Fall back to stored title only if parsed title is generic or missing.
-        if parsed.get("is_series") and parsed.get("title"):
-            for _ in range(3):
-                parsed["title"] = re.sub(r"\(\s*(part|pt|vol|volume|book|chapter)\s*\d*\s*\)", "", parsed["title"], flags=re.IGNORECASE)
-                parsed["title"] = re.sub(r"[\s\.\-_]+(part|pt|vol|volume|book|chapter)\s*\d*$", "", parsed["title"], flags=re.IGNORECASE)
-                parsed["title"] = re.sub(r"[\s\.\-_]+(kdrama|cdrama|k-drama|c-drama|series|tv|miniseries|mini-series|complete|full)$", "", parsed["title"], flags=re.IGNORECASE)
-                parsed["title"] = re.sub(r"[\s\.\-_]+\(?\d{4}\)?$", "", parsed["title"], flags=re.IGNORECASE)
-                parsed["title"] = parsed["title"].strip(" -_")
-        elif not parsed.get("title") or parsed.get("title") == "Unknown Media" or parsed.get("title").lower().startswith("episode "):
-            if stored_parsed.get("title"):
-                parsed["title"] = stored_parsed["title"]
-        if stored_parsed.get("season"):
-            parsed["season"] = stored_parsed["season"]
-        if stored_parsed.get("episode"):
-            parsed["episode"] = stored_parsed["episode"]
-        if stored_parsed.get("is_series") is not None:
-            parsed["is_series"] = stored_parsed["is_series"]
+                # 2. Canonical title healing:
+                if parsed.get("is_series") and parsed.get("title"):
+                    for _ in range(3):
+                        parsed["title"] = re.sub(r"\(\s*(part|pt|vol|volume|book|chapter)\s*\d*\s*\)", "", parsed["title"], flags=re.IGNORECASE)
+                        parsed["title"] = re.sub(r"[\s\.\-_]+(part|pt|vol|volume|book|chapter)\s*\d*$", "", parsed["title"], flags=re.IGNORECASE)
+                        parsed["title"] = re.sub(r"[\s\.\-_]+(kdrama|cdrama|k-drama|c-drama|series|tv|miniseries|mini-series|complete|full)$", "", parsed["title"], flags=re.IGNORECASE)
+                        parsed["title"] = re.sub(r"[\s\.\-_]+\(?\d{4}\)?$", "", parsed["title"], flags=re.IGNORECASE)
+                        parsed["title"] = parsed["title"].strip(" -_")
+                elif not parsed.get("title") or parsed.get("title") == "Unknown Media" or str(parsed.get("title")).lower().startswith("episode "):
+                    if stored_parsed.get("title"):
+                        parsed["title"] = stored_parsed["title"]
 
-        if parsed.get("is_series"):
-            s_str = f"S{parsed['season']:02d}" if parsed.get("season") else "S01"
-            e_str = f"E{parsed['episode']:02d}" if parsed.get("episode") else "E01"
-            ep_sub = f" — {parsed['episode_title']}" if parsed.get("episode_title") else ""
-            display_title = f"{parsed['title']} {s_str}{e_str}{ep_sub}"
-        else:
-            year_str = f" ({parsed['year']})" if parsed.get("year") else ""
-            display_title = f"{parsed['title']}{year_str}"
+                try:
+                    if stored_parsed.get("season") is not None:
+                        parsed["season"] = int(stored_parsed["season"])
+                except Exception:
+                    pass
 
-        token = generate_stream_token(mid)
-        stream_url = f"{config.SERVER_URL}/dl/{token}"
-        watch_url = f"{config.SERVER_URL}/watch/{token}"
-        encoded_stream = urllib.parse.quote(stream_url, safe="")
-        encoded_title = urllib.parse.quote(parsed.get("title", fn), safe="")
-        base_player = config.BLOGGER_URL.rstrip("/")
-        sep = "&" if "?" in base_player else "?"
-        if base_player.endswith(".html"):
-            blogger_url = f"{base_player}{sep}watch={encoded_stream}&title={encoded_title}"
-        else:
-            blogger_url = f"{base_player}/{sep}watch={encoded_stream}&title={encoded_title}"
+                try:
+                    if stored_parsed.get("episode") is not None:
+                        parsed["episode"] = int(stored_parsed["episode"])
+                except Exception:
+                    pass
 
-        category = r.get("category")
-        # Self-healing fallback:
-        # 1. If category is missing or miscategorized as 'african' but parsed is not african (e.g. Genius, Georgie & Mandy, Ruthless), heal to parsed!
-        if not category or (category == "african" and parsed.get("category") != "african"):
-            category = parsed.get("category") or ("series" if parsed.get("is_series") else "movies")
-        # 2. Promote generic movies/series to specific category if parsed detects it (e.g. african, anime, kdrama, bollywood, cartoons)
-        elif parsed.get("category") and parsed.get("category") not in ("movies", "series") and category in ("movies", "series"):
-            category = parsed.get("category")
-        # 3. Realign movies vs series type
-        elif parsed.get("is_series") and category == "movies":
-            category = "series"
-        elif not parsed.get("is_series") and category == "series":
-            category = "movies"
+                if stored_parsed.get("is_series") is not None:
+                    parsed["is_series"] = bool(stored_parsed["is_series"])
 
-        golden_fn = parsed.get("golden_name") or fn
+                title_clean = str(parsed.get("title") or fn or "Unknown")
 
-        items.append({
-            "message_id": mid,
-            "file_name": golden_fn,
-            "original_file_name": fn,
-            "display_name": display_title or golden_fn,
-            "series_title": parsed.get("title", fn) if parsed.get("is_series") else None,
-            "season": parsed.get("season", 1) if parsed.get("is_series") else None,
-            "episode": parsed.get("episode", 1) if parsed.get("is_series") else None,
-            "episode_title": parsed.get("episode_title") if parsed.get("is_series") else None,
-            "quality": parsed.get("quality") or "HD",
-            "is_series": parsed.get("is_series", False),
-            "category": category,
-            "file_size_str": r.get("file_size_str", ""),
-            "stream_url": stream_url,
-            "watch_url": watch_url,
-            "blogger_url": blogger_url,
-            "created_at": r.get("created_at", 0),
+                if parsed.get("is_series"):
+                    s_num = int(parsed.get("season") or 1)
+                    e_num = int(parsed.get("episode") or 1)
+                    s_str = f"S{s_num:02d}"
+                    e_str = f"E{e_num:02d}"
+                    ep_sub = f" — {parsed['episode_title']}" if parsed.get("episode_title") else ""
+                    display_title = f"{title_clean} {s_str}{e_str}{ep_sub}"
+                else:
+                    year_str = f" ({parsed['year']})" if parsed.get("year") else ""
+                    display_title = f"{title_clean}{year_str}"
+
+                token = generate_stream_token(mid)
+                stream_url = f"{config.SERVER_URL}/dl/{token}"
+                watch_url = f"{config.SERVER_URL}/watch/{token}"
+                encoded_stream = urllib.parse.quote(stream_url, safe="")
+                encoded_title = urllib.parse.quote(title_clean, safe="")
+                base_player = config.BLOGGER_URL.rstrip("/")
+                sep = "&" if "?" in base_player else "?"
+                if base_player.endswith(".html"):
+                    blogger_url = f"{base_player}{sep}watch={encoded_stream}&title={encoded_title}"
+                else:
+                    blogger_url = f"{base_player}/{sep}watch={encoded_stream}&title={encoded_title}"
+
+                category = r.get("category")
+                if not category or (category == "african" and parsed.get("category") != "african"):
+                    category = parsed.get("category") or ("series" if parsed.get("is_series") else "movies")
+                elif parsed.get("category") and parsed.get("category") not in ("movies", "series") and category in ("movies", "series"):
+                    category = parsed.get("category")
+                elif parsed.get("is_series") and category == "movies":
+                    category = "series"
+                elif not parsed.get("is_series") and category == "series":
+                    category = "movies"
+
+                golden_fn = parsed.get("golden_name") or fn
+
+                items.append({
+                    "message_id": mid,
+                    "file_name": golden_fn,
+                    "original_file_name": fn,
+                    "display_name": display_title or golden_fn,
+                    "series_title": title_clean if parsed.get("is_series") else None,
+                    "season": int(parsed.get("season") or 1) if parsed.get("is_series") else None,
+                    "episode": int(parsed.get("episode") or 1) if parsed.get("is_series") else None,
+                    "episode_title": parsed.get("episode_title") if parsed.get("is_series") else None,
+                    "quality": parsed.get("quality") or "HD",
+                    "is_series": bool(parsed.get("is_series", False)),
+                    "category": category,
+                    "file_size_str": r.get("file_size_str", ""),
+                    "stream_url": stream_url,
+                    "watch_url": watch_url,
+                    "blogger_url": blogger_url,
+                    "created_at": r.get("created_at", 0),
+                })
+            except Exception as item_err:
+                logger.warning(f"Error processing item message_id={r.get('message_id')}: {item_err}")
+                continue
+
+        return web.json_response({
+            "success": True,
+            "total": len(items),
+            "items": items,
+        }, headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
         })
-
-    return web.json_response({
-        "success": True,
-        "total": len(items),
-        "items": items,
-    }, headers={
+    except Exception as e:
+        logger.error(f"Error in handle_api_media: {e}", exc_info=True)
+        return web.json_response({
+            "success": False,
+            "error": str(e)
+        }, status=500, headers={"Access-Control-Allow-Origin": "*"})
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
     })

@@ -1362,10 +1362,15 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           }
         } catch(e) {}
       } catch (e) {
+        console.error("loadMedia error:", e);
         if (isManualRefresh) {
-          showToast('⚠️ Refresh failed. Check network connection.');
+          showToast('⚠️ Refresh failed: ' + (e.message || 'Check network connection.'));
         } else {
-          document.getElementById('mediaGrid').innerHTML = '<div class="empty-state">Failed to load media. Check network connection.</div>';
+          document.getElementById('mediaGrid').innerHTML = `
+            <div class="empty-state">
+              <p>⚠️ Failed to load media: ${escapeHtml(e.message || 'Check network connection')}.</p>
+              <button onclick="loadMedia(true)" class="btn btn-watch" style="margin-top:12px; display:inline-block;">🔄 Retry</button>
+            </div>`;
         }
       }
     }
