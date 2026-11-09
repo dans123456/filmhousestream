@@ -313,12 +313,15 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
 
         # Check The Fixies (bilingual Russian/English episodic titles)
         lower_raw = raw_filename.lower()
+        norm_raw = re.sub(r"[\._\-]+", " ", lower_raw).strip()
+        norm_clean = re.sub(r"['’`]", "", norm_raw)
         if (
             "fixie" in lower_t
             or "fixies" in lower_t
             or "tideesh" in lower_t
+            or any(p in norm_clean for p in FIXIES_PHRASES)
             or any(p in lower_t for p in FIXIES_PHRASES)
-            or (re.search(r"[\u0400-\u04FF]", raw_filename) and any(w in lower_t for w in ("remote", "robot", "pen", "refrigerator", "oven", "paper", "microphone", "magnet", "lever", "keyboard", "globe", "flashlight", "drain", "compass", "alarm", "aquarium", "chess", "candy", "screws", "sensor", "vacuum", "tools", "thermometer", "thermos", "stapler", "battery", "mirror")))
+            or (re.search(r"[\u0400-\u04FF]", raw_filename) and any(w in norm_clean for w in ("remote", "robot", "pen", "refrigerator", "oven", "paper", "microphone", "magnet", "lever", "keyboard", "globe", "flashlight", "drain", "compass", "alarm", "aquarium", "chess", "candy", "screws", "sensor", "vacuum", "tools", "thermometer", "thermos", "stapler", "battery", "mirror")))
         ):
             if not episode_title and clean_title != "The Fixies":
                 episode_title = clean_title
@@ -326,13 +329,17 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             is_series = True
             if not season:
                 season = 1
+            if not episode:
+                episode = 1
 
         # Check VeggieTales (franchise movies and episodes)
-        elif lower_raw.startswith("veggietales") or any(p in lower_t for p in VEGGIETALES_PHRASES):
+        elif lower_raw.startswith("veggietales") or any(p in norm_clean for p in VEGGIETALES_PHRASES) or any(p in lower_t for p in VEGGIETALES_PHRASES):
             clean_title = "VeggieTales"
             is_series = True
             if not season:
                 season = 1
+            if not episode:
+                episode = 1
 
         # Canonical Series Normalization (unifies truncated titles and missing apostrophes)
         norm_t = re.sub(r"['’`]", "", lower_t)
