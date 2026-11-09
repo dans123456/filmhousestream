@@ -1330,7 +1330,18 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
 
     async function loadMedia(isManualRefresh = false) {
       try {
-        const res = await fetch('/api/media', {
+        const tgInit = window.Telegram?.WebApp?.initData || '';
+        const urlKey = new URLSearchParams(window.location.search).get('admin_key') || '';
+        const storedKey = sessionStorage.getItem('filmhouse_admin_key') || urlKey;
+
+        let apiUrl = '/api/media';
+        const params = new URLSearchParams();
+        if (tgInit) params.append('tgWebAppData', tgInit);
+        if (storedKey) params.append('admin_key', storedKey);
+        const qs = params.toString();
+        if (qs) apiUrl += '?' + qs;
+
+        const res = await fetch(apiUrl, {
           headers: getAuthHeaders()
         });
 
@@ -1383,7 +1394,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
 
       sessionStorage.setItem('filmhouse_admin_key', key);
       try {
-        const res = await fetch('/api/media', {
+        const res = await fetch('/api/media?admin_key=' + encodeURIComponent(key), {
           headers: getAuthHeaders()
         });
 

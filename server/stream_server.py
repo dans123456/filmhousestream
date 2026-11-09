@@ -651,6 +651,16 @@ async def handle_cors_options(request: web.Request) -> web.Response:
     )
 
 
+_api_media_cache = None
+_api_media_cache_time = 0.0
+_api_media_cache_ttl = 30.0
+
+
+def invalidate_media_cache():
+    global _api_media_cache
+    _api_media_cache = None
+
+
 async def handle_api_media(request: web.Request) -> web.Response:
     """Returns JSON array of all tracked media items (ADMIN ONLY)."""
     # 1. Rate limiting & anti-abuse (relaxed to 120 requests/min for smooth admin browsing)
@@ -671,6 +681,15 @@ async def handle_api_media(request: web.Request) -> web.Response:
                 "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
             }
         )
+
+    # 3. Check fast in-memory cache
+    global _api_media_cache, _api_media_cache_time
+    now = time.time()
+    if _api_media_cache is not None and (now - _api_media_cache_time) < _api_media_cache_ttl:
+        return web.json_response(_api_media_cache, headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
+        })
 
     try:
         records = get_tracked_files()
@@ -772,11 +791,15 @@ async def handle_api_media(request: web.Request) -> web.Response:
                 logger.warning(f"Error processing item message_id={r.get('message_id')}: {item_err}")
                 continue
 
-        return web.json_response({
+        payload = {
             "success": True,
             "total": len(items),
             "items": items,
-        }, headers={
+        }
+        _api_media_cache = payload
+        _api_media_cache_time = now
+
+        return web.json_response(payload, headers={
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
         })
@@ -833,6 +856,7 @@ async def handle_api_delete(request: web.Request) -> web.Response:
                 logger.error(f"Error deleting batch from Telegram: {e}")
 
         remove_tracked_files(mids)
+        invalidate_media_cache()
         return web.json_response({"success": True, "deleted_count": len(mids)}, headers={"Access-Control-Allow-Origin": "*"})
     except Exception as e:
         logger.error(f"Error in handle_api_delete: {e}")
@@ -861,6 +885,7 @@ async def handle_api_category(request: web.Request) -> web.Response:
 
         mids = [int(m) for m in mids]
         update_tracked_category(mids, category)
+        invalidate_media_cache()
         return web.json_response({"success": True, "updated_count": len(mids), "category": category}, headers={"Access-Control-Allow-Origin": "*"})
     except Exception as e:
         logger.error(f"Error in handle_api_category: {e}")
@@ -883,6 +908,7 @@ async def handle_api_edit(request: web.Request) -> web.Response:
 
         mid = int(mid)
         update_tracked_metadata(mid, data)
+        invalidate_media_cache()
         return web.json_response({"success": True, "message_id": mid}, headers={"Access-Control-Allow-Origin": "*"})
     except Exception as e:
         logger.error(f"Error in handle_api_edit: {e}")
