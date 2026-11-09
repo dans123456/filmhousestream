@@ -1329,29 +1329,32 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
     }
 
     function safeParseJson(rawText) {
-      if (!rawText) return null;
+      if (!rawText || typeof rawText !== 'string') return null;
+      const trimmed = rawText.trim();
       try {
-        return JSON.parse(rawText);
+        return JSON.parse(trimmed);
       } catch (e) {
-        const sIdx = rawText.indexOf('{');
-        const eIdx = rawText.lastIndexOf('}');
+        const sIdx = trimmed.indexOf('{');
+        const eIdx = trimmed.lastIndexOf('}');
         if (sIdx !== -1 && eIdx > sIdx) {
           try {
-            return JSON.parse(rawText.substring(sIdx, eIdx + 1));
+            return JSON.parse(trimmed.substring(sIdx, eIdx + 1));
           } catch (inner) {}
         }
-        const aIdx = rawText.indexOf('[');
-        const aeIdx = rawText.lastIndexOf(']');
+        const aIdx = trimmed.indexOf('[');
+        const aeIdx = trimmed.lastIndexOf(']');
         if (aIdx !== -1 && aeIdx > aIdx) {
           try {
-            return JSON.parse(rawText.substring(aIdx, aeIdx + 1));
+            return JSON.parse(trimmed.substring(aIdx, aeIdx + 1));
           } catch (inner) {}
         }
-        throw new Error(rawText.substring(0, 30));
+        throw new Error(trimmed.substring(0, 40));
       }
     }
 
     async function loadMedia(isManualRefresh = false) {
+      const statsBadge = document.getElementById('statsBadge');
+      if (statsBadge && isManualRefresh) statsBadge.textContent = 'Loading...';
       try {
         const tgInit = window.Telegram?.WebApp?.initData || '';
         const urlKey = new URLSearchParams(window.location.search).get('admin_key') || '';
@@ -1369,6 +1372,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         });
 
         if (res.status === 401 || res.status === 403) {
+          if (statsBadge) statsBadge.textContent = 'Auth Required';
           showAuthModal();
           return;
         }
@@ -1376,13 +1380,14 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         const rawText = await res.text();
         const data = safeParseJson(rawText);
         if (!data || !data.success) {
+          if (statsBadge) statsBadge.textContent = 'Auth Required';
           showAuthModal();
           return;
         }
 
         hideAuthModal();
         allMedia = data.items || [];
-        document.getElementById('statsBadge').textContent = `${allMedia.length} Titles`;
+        if (statsBadge) statsBadge.textContent = `${allMedia.length} Titles`;
         updateCategoryCounts();
         renderMedia();
 
@@ -1398,6 +1403,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         } catch(e) {}
       } catch (e) {
         console.error("loadMedia error:", e);
+        if (statsBadge) statsBadge.textContent = 'Connection Error';
         if (isManualRefresh) {
           showToast('⚠️ Refresh failed: ' + (e.message || 'Check network connection.'));
         } else {
@@ -1437,8 +1443,6 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         }
         err.textContent = '❌ Incorrect Admin Passcode or Unauthorized Account.';
         err.style.display = 'block';
-          err.style.display = 'block';
-        }
       } catch (e) {
         err.textContent = '❌ Connection failed.';
         err.style.display = 'block';
@@ -1899,8 +1903,15 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       }
     }
 
-    function renderItemListHtml(items, query) {
-      // 1. Group series using smart canonical keys and prefix coalescing
+    const sectionPageLimits = {};
+    function loadMoreSection(catId) {
+      sectionPageLimits[catId] = (sectionPageLimits[catId] || 35) + 35;
+      renderMedia();
+    }
+
+    function renderItemListHtml(items, query, catId = '') {
+      // 1. Group series using smart canonical keys with O(1) Map indexing
+      const seriesGroupMap = new Map();
       const seriesGroupList = [];
       const standaloneItems = [];
 
@@ -1910,7 +1921,11 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           const normKey = getCanonicalSeriesKey(rawTitle);
           if (!normKey) return;
 
-          let matchGroup = seriesGroupList.find(g => canMergeKeys(g.canonicalKey, normKey));
+          let matchGroup = seriesGroupMap.get(normKey);
+          if (!matchGroup) {
+            const baseKey = stripSeriesSuffix(normKey);
+            matchGroup = seriesGroupMap.get(baseKey);
+          }
 
           if (!matchGroup) {
             matchGroup = {
@@ -1922,6 +1937,11 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
               allEpisodes: [],
               quality: item.quality || 'HD',
             };
+            seriesGroupMap.set(normKey, matchGroup);
+            const baseKey = stripSeriesSuffix(normKey);
+            if (baseKey && baseKey !== normKey) {
+              seriesGroupMap.set(baseKey, matchGroup);
+            }
             seriesGroupList.push(matchGroup);
           } else {
             const candidate = getCleanFolderTitle(rawTitle);
@@ -1944,10 +1964,40 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         }
       });
 
-      let subHtml = '';
+      // 2. Render Movies (with Smart Multi-Quality Grouping)
+      const movieGroups = {};
+      standaloneItems.forEach(item => {
+        const cleanTitle = (item.display_name || item.file_name || '')
+          .replace(/\[\s*(1080p|720p|480p|2160p|4k|uhd|bluray|webrip|web-dl|hdrip|hd|cam)\s*\]/gi, '')
+          .replace(/\b(1080p|720p|480p|2160p|4k|uhd|bluray|webrip|web-dl|hdrip|hd|cam|6ch|x264|x265|hevc)\b/gi, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .toLowerCase();
 
-      // Render Series Folders
-      seriesGroupList.sort((a, b) => a.title.localeCompare(b.title)).forEach(group => {
+        const groupKey = cleanTitle || (item.display_name || item.file_name).toLowerCase();
+        if (!movieGroups[groupKey]) {
+          movieGroups[groupKey] = {
+            title: item.display_name || item.file_name,
+            category: item.category || 'movies',
+            items: []
+          };
+        }
+        movieGroups[groupKey].items.push(item);
+      });
+
+      const sortedSeries = seriesGroupList.sort((a, b) => a.title.localeCompare(b.title));
+      const movieGroupList = Object.values(movieGroups);
+      const totalUnits = sortedSeries.length + movieGroupList.length;
+      const maxDisplay = (!query && catId) ? (sectionPageLimits[catId] || 35) : 999999;
+
+      let subHtml = '';
+      let renderedCount = 0;
+
+      // Render Series Folders up to display limit
+      for (const group of sortedSeries) {
+        if (renderedCount >= maxDisplay) break;
+        renderedCount++;
+
         const seasonKeys = Object.keys(group.seasons).map(Number).sort((a, b) => a - b);
         const isExpanded = isFolderExpanded(group.canonicalKey);
         const totalEpCount = group.allEpisodes.length;
@@ -2038,30 +2088,13 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           ` : ''}
         </div>
         `;
-      });
+      }
 
-      // Render Movies (with Smart Multi-Quality Grouping)
-      const movieGroups = {};
-      standaloneItems.forEach(item => {
-        const cleanTitle = (item.display_name || item.file_name || '')
-          .replace(/\[\s*(1080p|720p|480p|2160p|4k|uhd|bluray|webrip|web-dl|hdrip|hd|cam)\s*\]/gi, '')
-          .replace(/\b(1080p|720p|480p|2160p|4k|uhd|bluray|webrip|web-dl|hdrip|hd|cam|6ch|x264|x265|hevc)\b/gi, '')
-          .replace(/\s+/g, ' ')
-          .trim()
-          .toLowerCase();
+      // Render Movies up to display limit
+      for (const mGroup of movieGroupList) {
+        if (renderedCount >= maxDisplay) break;
+        renderedCount++;
 
-        const groupKey = cleanTitle || (item.display_name || item.file_name).toLowerCase();
-        if (!movieGroups[groupKey]) {
-          movieGroups[groupKey] = {
-            title: item.display_name || item.file_name,
-            category: item.category || 'movies',
-            items: []
-          };
-        }
-        movieGroups[groupKey].items.push(item);
-      });
-
-      Object.values(movieGroups).forEach(mGroup => {
         const catObj = getCategoryObj(mGroup.category);
         if (mGroup.items.length === 1) {
           const item = mGroup.items[0];
@@ -2141,6 +2174,23 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           </div>
           `;
         }
+      }
+
+      if (totalUnits > maxDisplay) {
+        subHtml += `
+        <div style="text-align:center; padding:18px 0; width:100%; display:flex; justify-content:center;">
+          <button onclick="loadMoreSection('${catId}')" class="btn btn-watch" style="padding:10px 24px; font-size:0.85rem; border-radius:12px; cursor:pointer;">
+            ⬇️ Load More (${totalUnits - maxDisplay} remaining)
+          </button>
+        </div>
+        `;
+      }
+
+      return subHtml;
+    }
+          </div>
+          `;
+        }
       });
 
       return subHtml;
@@ -2187,7 +2237,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
               <div class="category-banner-toggle ${isCollapsed ? 'collapsed' : ''}">▼</div>
             </div>
             <div class="category-section-content ${isCollapsed ? 'collapsed' : ''}">
-              ${catItems.length > 0 ? renderItemListHtml(catItems, query) : '<div class="empty-state" style="padding:15px; font-size:0.8rem; margin:0;">No items in this category.</div>'}
+              ${catItems.length > 0 ? renderItemListHtml(catItems, query, cat.id) : '<div class="empty-state" style="padding:15px; font-size:0.8rem; margin:0;">No items in this category.</div>'}
             </div>
           </div>
           `;
@@ -2210,7 +2260,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
             </div>
           </div>
           <div class="category-section-content">
-            ${catItems.length > 0 ? renderItemListHtml(catItems, query) : '<div class="empty-state">No media found in this category.</div>'}
+            ${catItems.length > 0 ? renderItemListHtml(catItems, query, activeCat.id) : '<div class="empty-state">No media found in this category.</div>'}
           </div>
         </div>
         `;
