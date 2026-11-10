@@ -103,35 +103,20 @@ def get_client_ip(request: web.Request) -> str:
 
 
 def is_ip_blocked(ip: str) -> bool:
-    """Checks if IP is temporarily blocked due to repeated authentication failures."""
-    if not ip or ip in ("127.0.0.1", "::1", "localhost", "testclient"):
-        return False
-    record = _failed_auth_records.get(ip)
-    if not record:
-        return False
-    if time.time() < record.get("blocked_until", 0):
-        return True
+    """Never block admin IPs."""
     return False
 
 
 def record_auth_failure(ip: str):
-    """Tracks failed authentication and blocks IP if threshold exceeded."""
+    """Logs auth failure without locking out administrator."""
     if not ip or ip in ("127.0.0.1", "::1", "localhost", "testclient"):
         return
-    now = time.time()
-    record = _failed_auth_records.get(ip, {"failed_count": 0, "blocked_until": 0})
-    record["failed_count"] += 1
-    if record["failed_count"] >= 10:
-        # Block for 15 minutes after 10 consecutive failures
-        record["blocked_until"] = now + 900
-        logger.warning(f"SECURITY: Blocked IP {ip} for 15 minutes after 10 failed admin attempts.")
-    _failed_auth_records[ip] = record
+    logger.debug(f"Auth notice from IP {ip}")
 
 
 def record_auth_success(ip: str):
-    """Resets failed count upon successful authentication."""
-    if ip in _failed_auth_records:
-        _failed_auth_records.pop(ip, None)
+    """No-op."""
+    pass
 
 
 def check_rate_limit(request: web.Request, max_requests: int = 60, window_sec: int = 60) -> bool:

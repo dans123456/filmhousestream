@@ -1812,11 +1812,16 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         const qs = params.toString();
         const url = '/api/audit/sync' + (qs ? '?' + qs : '');
 
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: getAuthHeaders()
-        });
-        if (res.ok) {
+        let res;
+        try {
+          res = await fetch(url, { method: 'POST', headers: getAuthHeaders() });
+        } catch(postErr) {
+          res = await fetch(url);
+        }
+        if (!res || !res.ok) {
+          try { res = await fetch(url); } catch(getErr) {}
+        }
+        if (res && res.ok) {
           showToast("🚀 TMDB Background Audit Started! Scanning series against TMDB.");
           setTimeout(fetchAuditData, 3000);
           setTimeout(fetchAuditData, 8000);

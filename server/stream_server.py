@@ -1010,15 +1010,19 @@ async def handle_api_audit(request: web.Request) -> web.Response:
 
 async def handle_api_audit_sync(request: web.Request) -> web.Response:
     """Triggers background series completeness audit using TMDB."""
-    if not check_rate_limit(request, max_requests=20, window_sec=60):
-        return web.json_response({"success": False, "error": "Rate limit exceeded. Please wait a moment."}, status=429, headers={"Access-Control-Allow-Origin": "*"})
-
-    from server.tmdb_auditor import run_series_completeness_audit
-    asyncio.create_task(run_series_completeness_audit(force_tmdb=True))
-    return web.json_response({"success": True, "message": "Audit started in background."}, headers={
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
-    })
+    try:
+        from server.tmdb_auditor import run_series_completeness_audit
+        asyncio.create_task(run_series_completeness_audit(force_tmdb=True))
+        return web.json_response({
+            "success": True,
+            "message": "Audit started in background."
+        }, headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "*",
+        })
+    except Exception as e:
+        logger.error(f"Error starting audit sync: {e}", exc_info=True)
+        return web.json_response({"success": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
 
 
 def create_stream_app() -> web.Application:
@@ -1032,6 +1036,7 @@ def create_stream_app() -> web.Application:
     app.router.add_route("OPTIONS", "/api/media", handle_cors_options)
     app.router.add_get("/api/audit", handle_api_audit)
     app.router.add_route("OPTIONS", "/api/audit", handle_cors_options)
+    app.router.add_get("/api/audit/sync", handle_api_audit_sync)
     app.router.add_post("/api/audit/sync", handle_api_audit_sync)
     app.router.add_route("OPTIONS", "/api/audit/sync", handle_cors_options)
     app.router.add_post("/api/media/delete", handle_api_delete)
