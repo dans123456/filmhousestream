@@ -2186,13 +2186,6 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
 
       return subHtml;
     }
-          </div>
-          `;
-        }
-      });
-
-      return subHtml;
-    }
 
     function renderMedia() {
       const grid = document.getElementById('mediaGrid');
