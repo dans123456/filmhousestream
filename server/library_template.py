@@ -631,6 +631,8 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       display: flex;
       align-items: center;
       gap: 6px;
+      flex-wrap: wrap;
+      line-height: 1.35;
     }
     .folder-toggle-btn {
       width: 32px;
@@ -859,19 +861,24 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
     }
     .toast {
       position: fixed;
-      bottom: max(20px, env(safe-area-inset-bottom));
+      bottom: max(24px, env(safe-area-inset-bottom, 24px));
       left: 50%;
       transform: translateX(-50%);
       background: #10b981;
       color: #fff;
       font-weight: 600;
-      font-size: 0.82rem;
-      padding: 8px 18px;
+      font-size: 0.8rem;
+      padding: 9px 18px;
       border-radius: 20px;
       box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
-      z-index: 100;
+      z-index: 9999;
       display: none;
-      white-space: nowrap;
+      max-width: 90vw;
+      width: auto;
+      text-align: center;
+      line-height: 1.35;
+      box-sizing: border-box;
+      word-break: break-word;
     }
 
     /* Floating Bulk Delete Action Bar */
@@ -1018,27 +1025,143 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
     }
 
     /* Mobile Responsive Optimizations */
+    @media (max-width: 640px) {
+      .header {
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .brand {
+        flex: 1 0 auto;
+      }
+      .header-actions {
+        flex-wrap: wrap;
+        gap: 6px;
+        justify-content: flex-end;
+      }
+      .category-section-banner {
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 10px 12px;
+      }
+      .category-banner-left {
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .category-banner-title {
+        white-space: normal;
+        word-break: break-word;
+        font-size: 0.88rem;
+        line-height: 1.25;
+      }
+    }
+
     @media (max-width: 480px) {
       .container {
         padding-left: 10px;
         padding-right: 10px;
+        padding-bottom: 90px;
+      }
+      .header {
+        margin-bottom: 10px;
+      }
+      .title-area h1 {
+        font-size: 1.1rem;
+      }
+      .logo {
+        width: 32px;
+        height: 32px;
+        font-size: 17px;
+        border-radius: 9px;
+      }
+      .stats-badge, .btn-select-toggle, .btn-refresh {
+        font-size: 0.68rem;
+        padding: 4px 8px;
+      }
+      .filter-tabs {
+        gap: 6px;
+        margin-bottom: 12px;
+      }
+      .tab {
+        padding: 6px 10px;
+        font-size: 0.76rem;
       }
       .series-folder-card {
         padding: 12px 10px;
+        border-radius: 14px;
+        gap: 10px;
+      }
+      .folder-header {
+        gap: 8px;
+      }
+      .folder-icon {
+        width: 34px;
+        height: 34px;
+        font-size: 17px;
+        border-radius: 10px;
+      }
+      .folder-name {
+        font-size: 0.94rem;
+        white-space: normal;
+        word-break: break-word;
+        line-height: 1.3;
+      }
+      .folder-meta {
+        font-size: 0.72rem;
+        flex-wrap: wrap;
+        gap: 4px;
+        line-height: 1.35;
+      }
+      .badge-category {
+        font-size: 0.64rem;
+        padding: 2px 6px;
+      }
+      .badge-quality {
+        font-size: 0.64rem;
+        padding: 2px 5px;
+      }
+      .folder-toggle-btn {
+        width: 28px;
+        height: 28px;
+        font-size: 0.72rem;
+      }
+      .audit-warning-box {
+        margin: 6px 2px 10px 2px !important;
+        padding: 8px 10px !important;
+        font-size: 0.75rem !important;
+        line-height: 1.4 !important;
       }
       .season-subfolders-container {
-        padding: 6px;
+        padding: 4px;
+        gap: 8px;
       }
       .season-subfolder-box {
         border-radius: 10px;
       }
+      .season-subfolder-header {
+        padding: 8px 10px;
+      }
+      .season-subfolder-title {
+        font-size: 0.84rem;
+      }
+      .season-badge-count {
+        font-size: 0.68rem;
+        padding: 2px 6px;
+      }
       .episodes-wrapper {
-        padding: 6px !important;
+        padding: 6px 4px !important;
         gap: 6px;
       }
       .episode-row {
         padding: 8px 10px;
         gap: 6px;
+        border-radius: 10px;
+      }
+      .episode-num-badge {
+        font-size: 0.72rem;
+        padding: 2px 6px;
+      }
+      .episode-title-text {
+        font-size: 0.78rem;
       }
       .action-row {
         gap: 5px;
@@ -1049,8 +1172,8 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         padding: 4px 6px;
       }
       .btn-del, .btn-edit {
-        width: 36px;
-        flex: 0 0 36px;
+        width: 34px;
+        flex: 0 0 34px;
       }
       .quality-version-row {
         flex-direction: column;
@@ -1077,6 +1200,26 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       .quality-version-actions .btn-del {
         flex: 0 0 34px;
         width: 34px;
+      }
+      .media-card {
+        padding: 10px 10px;
+        border-radius: 14px;
+      }
+      .card-title {
+        font-size: 0.88rem;
+      }
+    }
+
+    @media (max-width: 380px) {
+      .header-actions {
+        width: 100%;
+        justify-content: space-between;
+      }
+      .btn-refresh .refresh-text {
+        display: none;
+      }
+      .folder-header {
+        align-items: flex-start;
       }
     }
   </style>
@@ -2258,7 +2401,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
                 return `
                 <div class="season-subfolder-box" style="${sAudit && sAudit.expected && seasonEpisodes.length < sAudit.expected ? 'border-color:rgba(239,68,68,0.3);' : ''}">
                   <div class="season-subfolder-header" onclick="toggleSeason(event, '${seasonKey}')">
-                    <div style="display:flex; align-items:center; gap:8px;">
+                    <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px; flex:1; min-width:0;">
                       <span style="font-size:1.1rem;">📂</span>
                       <span class="season-subfolder-title">Season ${sNum}</span>
                       ${sAudit && sAudit.expected ? 
