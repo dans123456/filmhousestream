@@ -1097,6 +1097,10 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           <span class="refresh-icon" id="refreshIcon">🔄</span>
           <span class="refresh-text">Refresh</span>
         </button>
+        <button id="syncTmdbHeaderBtn" class="btn-refresh" onclick="syncAuditTMDB(event)" title="Sync TV Series with TMDB" style="background:rgba(239,68,68,0.15); border-color:rgba(239,68,68,0.35); color:#fca5a5;">
+          <span class="refresh-icon">📡</span>
+          <span class="refresh-text">Sync TMDB</span>
+        </button>
         <button id="selectToggleBtn" class="btn-select-toggle" onclick="toggleSelectMode()">☑️ Select</button>
       </div>
     </div>
@@ -1790,11 +1794,10 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
 
     async function syncAuditTMDB(e) {
       if (e) e.stopPropagation();
-      const btn = document.getElementById('syncTmdbBtn');
-      if (btn) {
-        btn.textContent = '⏳ Syncing...';
-        btn.disabled = true;
-      }
+      const btn1 = document.getElementById('syncTmdbBtn');
+      const btn2 = document.getElementById('syncTmdbHeaderBtn');
+      if (btn1) { btn1.textContent = '⏳ Syncing...'; btn1.disabled = true; }
+      if (btn2) { btn2.innerHTML = '<span class="refresh-icon">⏳</span><span class="refresh-text">Syncing...</span>'; btn2.disabled = true; }
       try {
         const tgInit = window.Telegram?.WebApp?.initData || '';
         const urlKey = new URLSearchParams(window.location.search).get('admin_key') || '';
@@ -1821,10 +1824,8 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       } catch (err) {
         showToast("⚠️ Network error starting audit.");
       } finally {
-        if (btn) {
-          btn.textContent = '🔄 Sync TMDB';
-          btn.disabled = false;
-        }
+        if (btn1) { btn1.textContent = '🔄 Sync TMDB'; btn1.disabled = false; }
+        if (btn2) { btn2.innerHTML = '<span class="refresh-icon">📡</span><span class="refresh-text">Sync TMDB</span>'; btn2.disabled = false; }
       }
     }
 
