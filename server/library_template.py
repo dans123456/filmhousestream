@@ -1763,7 +1763,16 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
 
     async function fetchAuditData() {
       try {
-        const res = await fetch(`${API_BASE}/api/audit`, { headers: getAuthHeaders() });
+        const tgInit = window.Telegram?.WebApp?.initData || '';
+        const urlKey = new URLSearchParams(window.location.search).get('admin_key') || '';
+        const storedKey = sessionStorage.getItem('filmhouse_admin_key') || urlKey;
+        const params = new URLSearchParams();
+        if (tgInit) params.append('tgWebAppData', tgInit);
+        if (storedKey) params.append('admin_key', storedKey);
+        const qs = params.toString();
+        const url = '/api/audit' + (qs ? '?' + qs : '');
+
+        const res = await fetch(url, { headers: getAuthHeaders() });
         if (res.ok) {
           const d = await res.json();
           if (d.success && d.audit) {
@@ -1787,14 +1796,25 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         btn.disabled = true;
       }
       try {
-        const res = await fetch(`${API_BASE}/api/audit/sync`, {
+        const tgInit = window.Telegram?.WebApp?.initData || '';
+        const urlKey = new URLSearchParams(window.location.search).get('admin_key') || '';
+        const storedKey = sessionStorage.getItem('filmhouse_admin_key') || urlKey;
+        const params = new URLSearchParams();
+        if (tgInit) params.append('tgWebAppData', tgInit);
+        if (storedKey) params.append('admin_key', storedKey);
+        const qs = params.toString();
+        const url = '/api/audit/sync' + (qs ? '?' + qs : '');
+
+        const res = await fetch(url, {
           method: 'POST',
           headers: getAuthHeaders()
         });
         if (res.ok) {
           showToast("🚀 TMDB Background Audit Started! Scanning series against TMDB.");
-          setTimeout(fetchAuditData, 4000);
-          setTimeout(fetchAuditData, 12000);
+          setTimeout(fetchAuditData, 3000);
+          setTimeout(fetchAuditData, 8000);
+          setTimeout(fetchAuditData, 16000);
+          setTimeout(fetchAuditData, 30000);
         } else {
           showToast("⚠️ Could not start audit sync.");
         }
