@@ -211,18 +211,32 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
                     episode_title = None
             break
 
-    # 2b. Episodic detection for bare numeric filenames (e.g. Koleoso.1.mp4 ... Koleoso.10.mp4)
+    # 2b. Episodic detection for bare numeric filenames and franchise series (e.g. Flex X Cop 01, Mr Bean 02, Koleoso 1)
     if not is_series:
-        bare_ep_match = re.search(r"^(.*?)(?:[\s\.\-_]+(?:ep|episode|part|pt)?[\s\.\-_]*)(\d{1,3})$", name, re.IGNORECASE)
+        bare_ep_match = re.search(r"^(.*?)(?:[\s\.\-_]+(?:ep|episode|part|pt|e)?[\s\.\-_]*)(\d{1,3})$", name, re.IGNORECASE)
+        lower_name = name.lower()
         if bare_ep_match:
             pot_title = bare_ep_match.group(1).replace(".", " ").replace("_", " ").strip()
             pot_num = int(bare_ep_match.group(2))
             lower_pot = pot_title.lower()
-            if "koleoso" in lower_pot or re.search(r"\b(koleoso|yoruba|yorubahood)\b", lower_pot):
+            # If explicit episode keyword, or known franchise, or reasonable 1-3 digit episode number
+            has_ep_keyword = bool(re.search(r"[\s\.\-_]+(?:ep|episode|part|pt|e)[\s\.\-_]*\d{1,3}$", name, re.IGNORECASE))
+            is_known_series = any(k in lower_pot for k in ("flex", "bean", "koleoso", "yoruba", "fixie", "veggie", "noobee"))
+            if has_ep_keyword or is_known_series or (len(pot_title) >= 3 and 1 <= pot_num <= 200 and not (1920 <= pot_num <= 2030)):
                 is_series = True
                 season = 1
                 episode = pot_num
                 working_name = pot_title
+        elif any(k in lower_name for k in ("flex x cop", "flexxcop", "mr bean", "mr. bean")):
+            # Universal Franchise fallback for Flex X Cop & Mr Bean
+            is_series = True
+            season = 1
+            num_match = re.search(r"\b(\d{1,3})\b", name)
+            episode = int(num_match.group(1)) if num_match else 1
+            if "flex" in lower_name:
+                working_name = "Flex X Cop"
+            elif "bean" in lower_name:
+                working_name = "Mr. Bean"
 
     # 3. Detect Year
     year = None

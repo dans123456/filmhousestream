@@ -706,6 +706,30 @@ def build_api_media_payload() -> dict:
             if stored_parsed.get("is_series") is not None:
                 parsed["is_series"] = bool(stored_parsed["is_series"])
 
+            # Auto-Heal Series: Upgrade files with franchise or episode markers to series
+            lower_fn = fn.lower()
+            lower_title = str(parsed.get("title") or "").lower()
+            if not parsed.get("is_series"):
+                if "flex x cop" in lower_fn or "flexxcop" in lower_fn or "flex x cop" in lower_title:
+                    parsed["is_series"] = True
+                    parsed["title"] = "Flex X Cop"
+                    parsed["category"] = "kdrama"
+                    m = re.search(r"\b(?:e|ep|episode)?\s*0?(\d{1,3})\b", fn, re.IGNORECASE)
+                    if m: parsed["episode"] = int(m.group(1))
+                    parsed["season"] = parsed.get("season") or 1
+                elif "mr bean" in lower_fn or "mr. bean" in lower_fn or "mr bean" in lower_title:
+                    parsed["is_series"] = True
+                    parsed["title"] = "Mr. Bean"
+                    parsed["category"] = "series"
+                    m = re.search(r"\b(?:e|ep|episode)?\s*0?(\d{1,3})\b", fn, re.IGNORECASE)
+                    if m: parsed["episode"] = int(m.group(1))
+                    parsed["season"] = parsed.get("season") or 1
+                elif re.search(r"\b(?:ep|episode)\s*0?(\d{1,3})\b", fn, re.IGNORECASE):
+                    parsed["is_series"] = True
+                    m = re.search(r"\b(?:ep|episode)\s*0?(\d{1,3})\b", fn, re.IGNORECASE)
+                    if m: parsed["episode"] = int(m.group(1))
+                    parsed["season"] = parsed.get("season") or 1
+
             title_clean = str(parsed.get("title") or fn or "Unknown")
 
             if parsed.get("is_series"):

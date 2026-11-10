@@ -549,7 +549,10 @@ def register_handlers(app: Client):
             "• Series: `Series.Title.S01E01.720p.mkv`\n\n"
             "❌ **4. Cancelling:**\n"
             "• Send `/cancel` or tap `[❌ Cancel Batch]` anytime to abort a batch.\n\n"
-            "📡 **5. Auto Catalog Matching:**\n"
+            "🔍 **5. Library & Series Audit:**\n"
+            "• Send `/library` or `/app` to open the WebApp library.\n"
+            "• Send `/audit` or `/checkepisodes` to list all series with only 1 episode uploaded.\n\n"
+            "📡 **6. Auto Catalog Matching:**\n"
             "• Run `/scanlibrary` in your Admin Bot to automatically link all stored files to your website!"
         )
         await message.reply_text(help_text, reply_markup=get_main_menu_keyboard())
@@ -609,6 +612,82 @@ def register_handlers(app: Client):
 
         await message.reply_text("🛑 **Current batch cancelled.**\nYou can start fresh whenever you're ready.")
 
+    @app.on_message(filters.command(["audit", "checkepisodes", "single_episodes"]) & filters.private)
+    async def audit_episodes_command_handler(client: Client, message: Message):
+        """Audits all series in the library to identify series with only 1 episode recorded."""
+        if not is_authorized(message.from_user.id):
+            return
+
+        status_msg = await message.reply_text("🔍 **Auditing Library...**\nScanning all series across your 6,400+ titles for single-episode series.")
+
+        try:
+            from server.stream_server import build_api_media_payload
+            payload = build_api_media_payload()
+            items = payload.get("items", [])
+        except Exception as e:
+            logger.error(f"Audit error fetching payload: {e}")
+            await status_msg.edit_text(f"❌ Failed to run audit: {e}")
+            return
+
+        # Group series by title
+        series_map = {}
+        for item in items:
+            if item.get("is_series") and item.get("series_title"):
+                title = str(item["series_title"]).strip()
+                norm_key = re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_")
+                if not norm_key:
+                    continue
+                if norm_key not in series_map:
+                    series_map[norm_key] = {
+                        "title": title,
+                        "category": item.get("category", "series"),
+                        "episodes": [],
+                    }
+                series_map[norm_key]["episodes"].append(item)
+
+        # Filter single-episode series
+        single_ep_series = [s for s in series_map.values() if len(s["episodes"]) == 1]
+        single_ep_series.sort(key=lambda s: s["title"].lower())
+
+        if not single_ep_series:
+            await status_msg.edit_text("🎉 **Audit Complete!**\n\nNo single-episode series found! All series in your library have 2 or more episodes.")
+            return
+
+        total_count = len(single_ep_series)
+        header = (
+            f"⚠️ **Series Audit: Single-Episode Titles ({total_count} Total)**\n"
+            "The following series only have **1 episode** uploaded in your library. "
+            "Use this checklist to locate and re-upload the missing episodes:\n\n"
+        )
+
+        lines = []
+        for i, s in enumerate(single_ep_series, 1):
+            ep_info = s["episodes"][0]
+            s_num = ep_info.get("season") or 1
+            e_num = ep_info.get("episode") or 1
+            fn = ep_info.get("original_file_name") or ep_info.get("file_name") or "Unknown"
+            cat_icon = "🎬" if s["category"] == "kdrama" else ("🎨" if s["category"] == "anime" else "📺")
+            lines.append(f"**{i}. {cat_icon} {s['title']}**\n   └ Recorded: S{s_num:02d}E{e_num:02d} (`{fn[:55]}`)")
+
+        # Send in chunks under 3800 characters to adhere to Telegram limits safely
+        messages_to_send = []
+        current_chunk = header
+
+        for line in lines:
+            if len(current_chunk) + len(line) + 2 > 3800:
+                messages_to_send.append(current_chunk)
+                current_chunk = line + "\n\n"
+            else:
+                current_chunk += line + "\n\n"
+        if current_chunk.strip():
+            messages_to_send.append(current_chunk)
+
+        # Edit status message with first chunk
+        await status_msg.edit_text(messages_to_send[0])
+        # Send subsequent chunks if any
+        for chunk in messages_to_send[1:]:
+            await message.reply_text(chunk)
+
     # ==========================================
     # Interactive Callback Handlers
     # ==========================================
@@ -654,7 +733,10 @@ def register_handlers(app: Client):
             "• Series: `Series.Title.S01E01.720p.mkv`\n\n"
             "❌ **4. Cancelling:**\n"
             "• Send `/cancel` or tap `[❌ Cancel Batch]` anytime to abort a batch.\n\n"
-            "📡 **5. Auto Catalog Matching:**\n"
+            "🔍 **5. Library & Series Audit:**\n"
+            "• Send `/library` or `/app` to open the WebApp library.\n"
+            "• Send `/audit` or `/checkepisodes` to list all series with only 1 episode uploaded.\n\n"
+            "📡 **6. Auto Catalog Matching:**\n"
             "• Run `/scanlibrary` in your Admin Bot to automatically link all stored files to your website!"
         )
         buttons = [[InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main")]]
@@ -794,7 +876,7 @@ def register_handlers(app: Client):
     # Option B: Title Reply Listener for Nameless Batches
     # ==========================================
 
-    @app.on_message(filters.text & filters.private & ~filters.command(["start", "menu", "help", "status", "clear_bin", "library", "app", "cancel"]))
+    @app.on_message(filters.text & filters.private & ~filters.command(["start", "menu", "help", "status", "clear_bin", "library", "app", "cancel", "audit", "checkepisodes", "single_episodes"]))
     async def title_reply_handler(client: Client, message: Message):
         user_id = message.from_user.id
         if not is_authorized(user_id):

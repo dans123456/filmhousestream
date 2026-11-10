@@ -1116,6 +1116,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       <button class="tab" data-filter="african">🌍 African <span class="tab-count" id="count-african">0</span></button>
       <button class="tab" data-filter="bollywood">👳 Bollywood <span class="tab-count" id="count-bollywood">0</span></button>
       <button class="tab" data-filter="cartoons">🎨 Cartoons <span class="tab-count" id="count-cartoons">0</span></button>
+      <button class="tab" data-filter="single_ep" style="border-color:rgba(239,68,68,0.35); color:#fca5a5;" title="Series with only 1 episode recorded">⚠️ Single Ep <span class="tab-count" id="count-single_ep" style="background:rgba(239,68,68,0.25); color:#fca5a5;">0</span></button>
     </div>
 
     <div id="mediaGrid" class="media-grid">
@@ -1616,6 +1617,8 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       }
 
       // Known Franchise Aliases
+      if (norm.startsWith('flex_x_cop') || norm.startsWith('flexxcop') || norm.includes('flex_x_cop')) return 'flex_x_cop';
+      if (norm.startsWith('mr_bean') || norm.startsWith('mrbean') || (norm.includes('bean') && !norm.includes('lord_of_the_beans'))) return 'mr_bean';
       if (norm.startsWith('georgie_and_mandy')) return 'georgie_and_mandys_first_marriage';
       if (norm.includes('ruthless')) return 'tyler_perrys_ruthless';
       if (norm.includes('sista')) return 'tyler_perrys_sistas';
@@ -1751,6 +1754,8 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
 
     function updateCategoryCounts() {
       const counts = { all: allMedia.length, movies: 0, series: 0, anime: 0, kdrama: 0, african: 0, bollywood: 0, cartoons: 0 };
+      const seriesEpCounts = new Map();
+
       allMedia.forEach(m => {
         const cat = m.category || (m.is_series ? 'series' : 'movies');
         if (counts[cat] !== undefined) {
@@ -1758,11 +1763,24 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         } else {
           counts[m.is_series ? 'series' : 'movies']++;
         }
+
+        if (m.is_series && m.series_title) {
+          const k = getCanonicalSeriesKey(m.series_title);
+          seriesEpCounts.set(k, (seriesEpCounts.get(k) || 0) + 1);
+        }
       });
+
       for (const [key, val] of Object.entries(counts)) {
         const el = document.getElementById(`count-${key}`);
         if (el) el.textContent = val;
       }
+
+      let singleEpCount = 0;
+      seriesEpCounts.forEach(c => {
+        if (c === 1) singleEpCount++;
+      });
+      const singleEl = document.getElementById('count-single_ep');
+      if (singleEl) singleEl.textContent = singleEpCount;
     }
 
     const collapsedSections = new Set();
@@ -2241,6 +2259,36 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           </div>
           `;
         });
+      } else if (currentFilter === 'single_ep') {
+        // Single Episode Series Filter
+        const seriesCountMap = new Map();
+        allMedia.forEach(item => {
+          if (item.is_series && item.series_title) {
+            const k = getCanonicalSeriesKey(item.series_title);
+            seriesCountMap.set(k, (seriesCountMap.get(k) || 0) + 1);
+          }
+        });
+
+        const singleItems = filtered.filter(item => {
+          if (!item.is_series || !item.series_title) return false;
+          const k = getCanonicalSeriesKey(item.series_title);
+          return seriesCountMap.get(k) === 1;
+        });
+
+        html += `
+        <div class="category-section" id="section-single-ep">
+          <div class="category-section-banner" style="cursor:default; border-color:rgba(239,68,68,0.35);">
+            <div class="category-banner-left">
+              <span class="category-banner-icon">⚠️</span>
+              <span class="category-banner-title" style="color:#fca5a5;">Series With Only 1 Episode Uploaded</span>
+              <span class="category-banner-count" style="background:rgba(239,68,68,0.25); color:#fca5a5;">${singleItems.length} Titles</span>
+            </div>
+          </div>
+          <div class="category-section-content">
+            ${singleItems.length > 0 ? renderItemListHtml(singleItems, query, 'single_ep') : '<div class="empty-state">🎉 Great news! No single-episode series found matching your search.</div>'}
+          </div>
+        </div>
+        `;
       } else {
         // Specific Category Filter
         const activeCat = CATEGORIES.find(c => c.id === currentFilter) || CATEGORIES[0];
@@ -2272,6 +2320,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       }
     }
 
+    let searchDebounceTimer = null;
     let prevSearchVal = '';
     function clearSearch() {
       const input = document.getElementById('searchInput');
@@ -2293,21 +2342,24 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
 
     const searchInput = document.getElementById('searchInput');
     searchInput.addEventListener('input', () => {
-      const q = searchInput.value.toLowerCase().trim();
       document.getElementById('searchClear').style.display = searchInput.value ? 'block' : 'none';
-      if (q && q !== prevSearchVal) {
-        allMedia.forEach(m => {
-          if (m.is_series && m.series_title) {
-            const titleMatch = (m.display_name || m.file_name || m.series_title || '').toLowerCase().includes(q);
-            if (titleMatch) {
-              const k = getCanonicalSeriesKey(m.series_title);
-              if (k) expandedFolders.add(k);
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(() => {
+        const q = searchInput.value.toLowerCase().trim();
+        if (q && q !== prevSearchVal) {
+          allMedia.forEach(m => {
+            if (m.is_series && m.series_title) {
+              const titleMatch = (m.display_name || m.file_name || m.series_title || '').toLowerCase().includes(q);
+              if (titleMatch) {
+                const k = getCanonicalSeriesKey(m.series_title);
+                if (k) expandedFolders.add(k);
+              }
             }
-          }
-        });
-      }
-      prevSearchVal = q;
-      renderMedia();
+          });
+        }
+        prevSearchVal = q;
+        renderMedia();
+      }, 250);
     });
 
     // Initial load
