@@ -44,6 +44,9 @@ if not ADMIN_SECRET:
     ADMIN_SECRET = hashlib.sha256((SECRET_KEY + ":admin_secret").encode("utf-8")).hexdigest()[:24]
 
 
+# 6. TMDB API Integration
+TMDB_API_KEY = os.getenv("TMDB_API_KEY", "d638f7775bfa1b8d456dfd028ccbef19").strip()
+
 def validate_config():
     """Verify that required credentials have been configured."""
     missing = []

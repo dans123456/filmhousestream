@@ -1116,7 +1116,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       <button class="tab" data-filter="african">🌍 African <span class="tab-count" id="count-african">0</span></button>
       <button class="tab" data-filter="bollywood">👳 Bollywood <span class="tab-count" id="count-bollywood">0</span></button>
       <button class="tab" data-filter="cartoons">🎨 Cartoons <span class="tab-count" id="count-cartoons">0</span></button>
-      <button class="tab" data-filter="single_ep" style="border-color:rgba(239,68,68,0.35); color:#fca5a5;" title="Series with only 1 episode recorded">⚠️ Single Ep <span class="tab-count" id="count-single_ep" style="background:rgba(239,68,68,0.25); color:#fca5a5;">0</span></button>
+      <button class="tab" data-filter="incomplete" style="border-color:rgba(239,68,68,0.35); color:#fca5a5;" title="Series with missing episodes or incomplete seasons">⚠️ Incomplete <span class="tab-count" id="count-incomplete" style="background:rgba(239,68,68,0.25); color:#fca5a5;">0</span></button>
     </div>
 
     <div id="mediaGrid" class="media-grid">
@@ -1397,6 +1397,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         if (statsBadge) statsBadge.textContent = `${allMedia.length} Titles`;
         updateCategoryCounts();
         renderMedia();
+        fetchAuditData();
 
         if (isManualRefresh) {
           showToast(`🔄 Library refreshed! (${allMedia.length} titles)`);
@@ -1610,6 +1611,10 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       // Universal article stripper: "the_", "a_", "an_" so titles with/without articles unite automatically!
       norm = norm.replace(/^(the|a|an)_+/, '');
 
+      // Strip leading and trailing End / Finale markers (e.g. "end_hotel_del_luna" -> "hotel_del_luna", "mr_queen_end" -> "mr_queen")
+      norm = norm.replace(/^(the_)?(end|finale|final)_+/, '');
+      norm = norm.replace(/_+(the_)?(end|finale|final)$/, '');
+
       // Proactively strip trailing part, season, volume, year, and release descriptors
       for (let i = 0; i < 3; i++) {
         norm = norm.replace(/_(season|s|part|pt|vol|volume|book|chapter|cdrama|kdrama|series|miniseries|tv|complete|full|hd|sd|hq|fhd|uhd|4k|1080p|720p|480p)(_\d+)*$/g, '');
@@ -1686,6 +1691,8 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       if (col.includes('nerotheassassin')) return 'Néro The Assassin';
 
       let clean = String(rawTitle).trim();
+      clean = clean.replace(/^(the\s+)?(end|finale|final)\s+/i, '');
+      clean = clean.replace(/[\s\.\-_]+(the\s+)?(end|finale|final)$/i, '');
       for (let i = 0; i < 3; i++) {
         clean = clean.replace(/\(\s*(part|pt|vol|volume|book|chapter|season|s)\s*\d*\s*\)/gi, '');
         clean = clean.replace(/[\s\.\-_]+(part|pt|vol|volume|book|chapter|season|s)\s*\d*$/i, '');
@@ -1752,6 +1759,55 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       return CATEGORIES.find(c => c.id === catId) || CATEGORIES[0];
     }
 
+    window.auditData = null;
+
+    async function fetchAuditData() {
+      try {
+        const res = await fetch(`${API_BASE}/api/audit`, { headers: getAuthHeaders() });
+        if (res.ok) {
+          const d = await res.json();
+          if (d.success && d.audit) {
+            window.auditData = d.audit;
+            updateCategoryCounts();
+            if (currentFilter === 'incomplete' || currentFilter === 'single_ep') {
+              renderMedia();
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Audit fetch notice:", e);
+      }
+    }
+
+    async function syncAuditTMDB(e) {
+      if (e) e.stopPropagation();
+      const btn = document.getElementById('syncTmdbBtn');
+      if (btn) {
+        btn.textContent = '⏳ Syncing...';
+        btn.disabled = true;
+      }
+      try {
+        const res = await fetch(`${API_BASE}/api/audit/sync`, {
+          method: 'POST',
+          headers: getAuthHeaders()
+        });
+        if (res.ok) {
+          showToast("🚀 TMDB Background Audit Started! Scanning series against TMDB.");
+          setTimeout(fetchAuditData, 4000);
+          setTimeout(fetchAuditData, 12000);
+        } else {
+          showToast("⚠️ Could not start audit sync.");
+        }
+      } catch (err) {
+        showToast("⚠️ Network error starting audit.");
+      } finally {
+        if (btn) {
+          btn.textContent = '🔄 Sync TMDB';
+          btn.disabled = false;
+        }
+      }
+    }
+
     function updateCategoryCounts() {
       const counts = { all: allMedia.length, movies: 0, series: 0, anime: 0, kdrama: 0, african: 0, bollywood: 0, cartoons: 0 };
       const seriesEpCounts = new Map();
@@ -1775,12 +1831,21 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         if (el) el.textContent = val;
       }
 
-      let singleEpCount = 0;
-      seriesEpCounts.forEach(c => {
-        if (c === 1) singleEpCount++;
+      let auditIncompleteKeys = new Set();
+      if (window.auditData && window.auditData.incomplete_series) {
+        window.auditData.incomplete_series.forEach(s => auditIncompleteKeys.add(s.canonical_key));
+      }
+
+      let incompleteCount = 0;
+      seriesEpCounts.forEach((c, k) => {
+        if (auditIncompleteKeys.size > 0) {
+          if (auditIncompleteKeys.has(k)) incompleteCount++;
+        } else if (c === 1) {
+          incompleteCount++;
+        }
       });
-      const singleEl = document.getElementById('count-single_ep');
-      if (singleEl) singleEl.textContent = singleEpCount;
+      const incompEl = document.getElementById('count-incomplete') || document.getElementById('count-single_ep');
+      if (incompEl) incompEl.textContent = incompleteCount;
     }
 
     const collapsedSections = new Set();
@@ -2259,8 +2324,8 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           </div>
           `;
         });
-      } else if (currentFilter === 'single_ep') {
-        // Single Episode Series Filter
+      } else if (currentFilter === 'incomplete' || currentFilter === 'single_ep') {
+        // Incomplete Series & TMDB Audit Filter
         const seriesCountMap = new Map();
         allMedia.forEach(item => {
           if (item.is_series && item.series_title) {
@@ -2269,23 +2334,34 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           }
         });
 
-        const singleItems = filtered.filter(item => {
+        let auditIncompleteKeys = new Set();
+        if (window.auditData && window.auditData.incomplete_series) {
+          window.auditData.incomplete_series.forEach(s => auditIncompleteKeys.add(s.canonical_key));
+        }
+
+        const incompleteItems = filtered.filter(item => {
           if (!item.is_series || !item.series_title) return false;
           const k = getCanonicalSeriesKey(item.series_title);
+          if (auditIncompleteKeys.size > 0) {
+            return auditIncompleteKeys.has(k);
+          }
           return seriesCountMap.get(k) === 1;
         });
 
         html += `
-        <div class="category-section" id="section-single-ep">
-          <div class="category-section-banner" style="cursor:default; border-color:rgba(239,68,68,0.35);">
+        <div class="category-section" id="section-incomplete">
+          <div class="category-section-banner" style="cursor:default; border-color:rgba(239,68,68,0.35); display:flex; justify-content:space-between; align-items:center;">
             <div class="category-banner-left">
               <span class="category-banner-icon">⚠️</span>
-              <span class="category-banner-title" style="color:#fca5a5;">Series With Only 1 Episode Uploaded</span>
-              <span class="category-banner-count" style="background:rgba(239,68,68,0.25); color:#fca5a5;">${singleItems.length} Titles</span>
+              <span class="category-banner-title" style="color:#fca5a5;">Incomplete Series (TMDB &amp; Gap Audit)</span>
+              <span class="category-banner-count" style="background:rgba(239,68,68,0.25); color:#fca5a5;">${incompleteItems.length} Titles</span>
             </div>
+            <button onclick="syncAuditTMDB(event)" class="btn btn-watch" style="padding:6px 14px; font-size:0.75rem; border-radius:10px; margin-right:8px; cursor:pointer;" id="syncTmdbBtn">
+              🔄 Sync TMDB
+            </button>
           </div>
           <div class="category-section-content">
-            ${singleItems.length > 0 ? renderItemListHtml(singleItems, query, 'single_ep') : '<div class="empty-state">🎉 Great news! No single-episode series found matching your search.</div>'}
+            ${incompleteItems.length > 0 ? renderItemListHtml(incompleteItems, query, 'incomplete') : '<div class="empty-state">🎉 Great news! All series in your library have complete seasons and no missing episodes!</div>'}
           </div>
         </div>
         `;

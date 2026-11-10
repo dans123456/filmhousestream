@@ -150,6 +150,22 @@ async def flush_batch(client: Client, user_id: int):
             file_name = item["file_name"]
             file_size_str = item["file_size_str"]
 
+            # Auto-detect TV Series via TMDB if parser was uncertain
+            if not parsed.get("is_series") and getattr(config, "TMDB_API_KEY", ""):
+                try:
+                    from server.tmdb_auditor import search_tmdb_tv
+                    import aiohttp
+                    async with aiohttp.ClientSession() as s:
+                        tv_match = await search_tmdb_tv(s, parsed.get("title") or file_name)
+                        if tv_match and (tv_match.get("vote_count", 0) >= 3 or tv_match.get("popularity", 0) >= 1.0):
+                            parsed["is_series"] = True
+                            parsed["title"] = tv_match.get("name") or parsed["title"]
+                            parsed["season"] = parsed.get("season") or 1
+                            parsed["episode"] = parsed.get("episode") or 1
+                            logger.info(f"Auto-promoted '{file_name}' to TV Series via TMDB ('{parsed['title']}')")
+                except Exception as tmdb_err:
+                    logger.debug(f"TMDB single-file check notice: {tmdb_err}")
+
             try:
                 # Post copy to bin channel without "Forwarded from" header
                 forwarded = await safe_copy_message(msg, config.BIN_CHANNEL_ID, status_msg=status_msg, ep_info=file_name)
@@ -195,8 +211,42 @@ async def flush_batch(client: Client, user_id: int):
                 await status_msg.edit_text(f"❌ Error indexing file: `{str(e)}`")
             return
 
-        # Case 2: Check if ALL items in the batch are non-series Movies
+        # Case 2: Multi-file Batch (Smart Universal Series vs Movie detection)
         all_movies = all(not item["parsed"].get("is_series") for item in items)
+        if all_movies and len(items) > 1:
+            # Check if this multi-file batch is actually an episodic series
+            titles = [it["parsed"].get("title") or it["file_name"] for it in items]
+            clean_titles = [re.sub(r"[\s\.\-_0-9]+$", "", t).strip() for t in titles]
+            first_base = clean_titles[0].lower() if clean_titles else ""
+            shared_show = len(first_base) >= 3 and sum(1 for t in clean_titles if t.lower().startswith(first_base[:5])) >= (len(clean_titles) // 2)
+            has_numbers = sum(1 for it in items if re.search(r"\b\d{1,3}\b", it["file_name"])) >= (len(items) // 2)
+
+            # Also check TMDB for the common title
+            tmdb_is_tv = False
+            if clean_titles and getattr(config, "TMDB_API_KEY", ""):
+                try:
+                    from server.tmdb_auditor import search_tmdb_tv
+                    import aiohttp
+                    async with aiohttp.ClientSession() as s:
+                        tv_match = await search_tmdb_tv(s, clean_titles[0])
+                        if tv_match and (tv_match.get("vote_count", 0) >= 3 or tv_match.get("popularity", 0) >= 1.0):
+                            tmdb_is_tv = True
+                            first_base = tv_match.get("name") or clean_titles[0]
+                except Exception:
+                    pass
+
+            if shared_show or has_numbers or tmdb_is_tv:
+                logger.info(f"Auto-Promoting multi-file batch ({len(items)} files) to Series Batch (Shared title / TMDB / episodic numbers detected)")
+                for idx, it in enumerate(items, 1):
+                    it["parsed"]["is_series"] = True
+                    it["parsed"]["season"] = it["parsed"].get("season") or 1
+                    if not it["parsed"].get("episode"):
+                        m = re.search(r"\b(?:ep|episode|e)?\s*0?(\d{1,3})\b", it["file_name"], re.IGNORECASE)
+                        it["parsed"]["episode"] = int(m.group(1)) if m else idx
+                    if clean_titles[0]:
+                        it["parsed"]["title"] = clean_titles[0]
+                all_movies = False
+
         if all_movies:
             await process_movies_batch(client, user_id, items, status_msg)
             return
@@ -612,62 +662,45 @@ def register_handlers(app: Client):
 
         await message.reply_text("🛑 **Current batch cancelled.**\nYou can start fresh whenever you're ready.")
 
-    @app.on_message(filters.command(["audit", "checkepisodes", "single_episodes"]) & filters.private)
+    @app.on_message(filters.command(["audit", "checkepisodes", "single_episodes", "synctmdb"]) & filters.private)
     async def audit_episodes_command_handler(client: Client, message: Message):
-        """Audits all series in the library to identify series with only 1 episode recorded."""
+        """Audits all series in the library to identify incomplete series, gaps, and single-episode titles using TMDB."""
         if not is_authorized(message.from_user.id):
             return
 
-        status_msg = await message.reply_text("🔍 **Auditing Library...**\nScanning all series across your 6,400+ titles for single-episode series.")
+        is_sync = "synctmdb" in (message.text or "")
+        status_msg = await message.reply_text("🔍 **Auditing Library with TMDB...**\nCross-checking episode completeness and detecting missing episodes.")
 
         try:
-            from server.stream_server import build_api_media_payload
-            payload = build_api_media_payload()
-            items = payload.get("items", [])
+            from server.tmdb_auditor import run_series_completeness_audit, load_cached_audit
+            if is_sync:
+                audit_data = await run_series_completeness_audit(force_tmdb=True)
+            else:
+                audit_data = load_cached_audit()
+                if not audit_data or audit_data.get("total_series", 0) == 0:
+                    audit_data = await run_series_completeness_audit(force_tmdb=True)
+
+            incomplete = audit_data.get("incomplete_series", [])
         except Exception as e:
-            logger.error(f"Audit error fetching payload: {e}")
+            logger.error(f"Audit error: {e}", exc_info=True)
             await status_msg.edit_text(f"❌ Failed to run audit: {e}")
             return
 
-        # Group series by title
-        series_map = {}
-        for item in items:
-            if item.get("is_series") and item.get("series_title"):
-                title = str(item["series_title"]).strip()
-                norm_key = re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_")
-                if not norm_key:
-                    continue
-                if norm_key not in series_map:
-                    series_map[norm_key] = {
-                        "title": title,
-                        "category": item.get("category", "series"),
-                        "episodes": [],
-                    }
-                series_map[norm_key]["episodes"].append(item)
-
-        # Filter single-episode series
-        single_ep_series = [s for s in series_map.values() if len(s["episodes"]) == 1]
-        single_ep_series.sort(key=lambda s: s["title"].lower())
-
-        if not single_ep_series:
-            await status_msg.edit_text("🎉 **Audit Complete!**\n\nNo single-episode series found! All series in your library have 2 or more episodes.")
+        if not incomplete:
+            await status_msg.edit_text("🎉 **Audit Complete!**\n\nAll TV series in your library have complete seasons and no missing episodes detected!")
             return
 
-        total_count = len(single_ep_series)
+        total_count = len(incomplete)
         header = (
-            f"⚠️ **Series Audit: Single-Episode Titles ({total_count} Total)**\n"
-            "The following series only have **1 episode** uploaded in your library. "
-            "Use this checklist to locate and re-upload the missing episodes:\n\n"
+            f"⚠️ **Series Completeness Audit ({total_count} Incomplete Titles)**\n"
+            f"Cross-checked with TMDB & local gap analysis. Use this checklist to locate and upload missing episodes:\n\n"
         )
 
         lines = []
-        for i, s in enumerate(single_ep_series, 1):
-            ep_info = s["episodes"][0]
-            s_num = ep_info.get("season") or 1
-            e_num = ep_info.get("episode") or 1
-            fn = ep_info.get("original_file_name") or ep_info.get("file_name") or "Unknown"
+        for i, s in enumerate(incomplete, 1):
             cat_icon = "🎬" if s["category"] == "kdrama" else ("🎨" if s["category"] == "anime" else "📺")
-            lines.append(f"**{i}. {cat_icon} {s['title']}**\n   └ Recorded: S{s_num:02d}E{e_num:02d} (`{fn[:55]}`)")
+            reasons_str = "; ".join(s.get("reasons", []))
+            lines.append(f"**{i}. {cat_icon} {s['title']}**\n   └ ⚠️ {reasons_str}")
 
         # Send in chunks under 3800 characters to adhere to Telegram limits safely
         messages_to_send = []
@@ -876,7 +909,7 @@ def register_handlers(app: Client):
     # Option B: Title Reply Listener for Nameless Batches
     # ==========================================
 
-    @app.on_message(filters.text & filters.private & ~filters.command(["start", "menu", "help", "status", "clear_bin", "library", "app", "cancel", "audit", "checkepisodes", "single_episodes"]))
+    @app.on_message(filters.text & filters.private & ~filters.command(["start", "menu", "help", "status", "clear_bin", "library", "app", "cancel", "audit", "checkepisodes", "single_episodes", "synctmdb"]))
     async def title_reply_handler(client: Client, message: Message):
         user_id = message.from_user.id
         if not is_authorized(user_id):

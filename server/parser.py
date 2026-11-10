@@ -211,32 +211,49 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
                     episode_title = None
             break
 
-    # 2b. Episodic detection for bare numeric filenames and franchise series (e.g. Flex X Cop 01, Mr Bean 02, Koleoso 1)
+    # 2b. Episodic detection for bare numeric filenames, End/Finale markers, and franchise series
     if not is_series:
-        bare_ep_match = re.search(r"^(.*?)(?:[\s\.\-_]+(?:ep|episode|part|pt|e)?[\s\.\-_]*)(\d{1,3})$", name, re.IGNORECASE)
         lower_name = name.lower()
-        if bare_ep_match:
-            pot_title = bare_ep_match.group(1).replace(".", " ").replace("_", " ").strip()
-            pot_num = int(bare_ep_match.group(2))
-            lower_pot = pot_title.lower()
-            # If explicit episode keyword, or known franchise, or reasonable 1-3 digit episode number
-            has_ep_keyword = bool(re.search(r"[\s\.\-_]+(?:ep|episode|part|pt|e)[\s\.\-_]*\d{1,3}$", name, re.IGNORECASE))
-            is_known_series = any(k in lower_pot for k in ("flex", "bean", "koleoso", "yoruba", "fixie", "veggie", "noobee"))
-            if has_ep_keyword or is_known_series or (len(pot_title) >= 3 and 1 <= pot_num <= 200 and not (1920 <= pot_num <= 2030)):
-                is_series = True
-                season = 1
-                episode = pot_num
-                working_name = pot_title
-        elif any(k in lower_name for k in ("flex x cop", "flexxcop", "mr bean", "mr. bean")):
-            # Universal Franchise fallback for Flex X Cop & Mr Bean
+        # Check for Finale / End markers: e.g. "End Hotel Del Luna", "End Mr Queen", "Hotel Del Luna End"
+        end_lead_match = re.search(r"^(?:the\s+)?(?:end|finale|final\s+episode)[\s\.\-_]+(.+)$", name, re.IGNORECASE)
+        end_trail_match = re.search(r"^(.+?)[\s\.\-_]+(?:the\s+)?(?:end|finale|final\s+episode)(?:[\s\.\-_]+.*)?$", name, re.IGNORECASE)
+        movie_end_exceptions = ("avengers end", "pirates end", "world's end", "worlds end", "dead end", "deep end", "week end", "weekend")
+
+        if end_lead_match:
             is_series = True
             season = 1
-            num_match = re.search(r"\b(\d{1,3})\b", name)
-            episode = int(num_match.group(1)) if num_match else 1
-            if "flex" in lower_name:
-                working_name = "Flex X Cop"
-            elif "bean" in lower_name:
-                working_name = "Mr. Bean"
+            num_m = re.search(r"\b(?:ep|episode|e)?\s*0?(\d{1,3})\b", name, re.IGNORECASE)
+            episode = int(num_m.group(1)) if num_m else 999
+            working_name = end_lead_match.group(1).replace(".", " ").replace("_", " ").strip()
+        elif end_trail_match and not any(ex in lower_name for ex in movie_end_exceptions):
+            is_series = True
+            season = 1
+            num_m = re.search(r"\b(?:ep|episode|e)?\s*0?(\d{1,3})\b", name, re.IGNORECASE)
+            episode = int(num_m.group(1)) if num_m else 999
+            working_name = end_trail_match.group(1).replace(".", " ").replace("_", " ").strip()
+        else:
+            # Universal episode detector: allows quality or format tags after the number (e.g. Flex X Cop 01 720p)
+            bare_ep_match = re.search(r"^(.*?)(?:[\s\.\-_]+(?:ep|episode|part|pt|e)?[\s\.\-_]*)(\d{1,3})(?:[\s\.\-_]+(?:1080p|720p|480p|4k|2160p|bluray|webrip|web-dl|web|hdrip|hd|hevc|x264|x265|aac|ac3|hindi|eng|dual|filmhouse|filmh|\b).*)?$", name, re.IGNORECASE)
+            if bare_ep_match:
+                pot_title = bare_ep_match.group(1).replace(".", " ").replace("_", " ").strip()
+                pot_num = int(bare_ep_match.group(2))
+                lower_pot = pot_title.lower()
+                has_ep_keyword = bool(re.search(r"[\s\.\-_]+(?:ep|episode|part|pt|e)[\s\.\-_]*\d{1,3}", name, re.IGNORECASE))
+                is_known_series = any(k in lower_pot for k in ("flex", "bean", "koleoso", "yoruba", "fixie", "veggie", "noobee"))
+                if has_ep_keyword or is_known_series or (len(pot_title) >= 2 and 1 <= pot_num <= 300 and not (1920 <= pot_num <= 2030)):
+                    is_series = True
+                    season = 1
+                    episode = pot_num
+                    working_name = pot_title
+            elif any(k in lower_name for k in ("flex x cop", "flexxcop", "mr bean", "mr. bean")):
+                is_series = True
+                season = 1
+                num_match = re.search(r"\b(\d{1,3})\b", name)
+                episode = int(num_match.group(1)) if num_match else 1
+                if "flex" in lower_name:
+                    working_name = "Flex X Cop"
+                elif "bean" in lower_name:
+                    working_name = "Mr. Bean"
 
     # 3. Detect Year
     year = None
@@ -268,6 +285,9 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
     clean_title = re.sub(r"\s+", " ", clean_title).strip(" -_")
 
     if is_series:
+        # Strip any leading or trailing End / Finale keywords
+        clean_title = re.sub(r"^(?:the\s+)?(?:end|finale|final)\s+", "", clean_title, flags=re.IGNORECASE)
+        clean_title = re.sub(r"[\s\.\-_]+(?:the\s+)?(?:end|finale|final)$", "", clean_title, flags=re.IGNORECASE)
         # Universal Series Title Cleanup: strip trailing batch/part/volume tokens, release tags, and years
         for _ in range(3):
             clean_title = re.sub(r"\(\s*(part|pt|vol|volume|book|chapter)\s*\d*\s*\)", "", clean_title, flags=re.IGNORECASE)

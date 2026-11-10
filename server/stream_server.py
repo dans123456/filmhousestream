@@ -706,10 +706,22 @@ def build_api_media_payload() -> dict:
             if stored_parsed.get("is_series") is not None:
                 parsed["is_series"] = bool(stored_parsed["is_series"])
 
-            # Auto-Heal Series: Upgrade files with franchise or episode markers to series
+            # Auto-Heal Series: Upgrade files with franchise, End/Finale markers, or episode markers to series
             lower_fn = fn.lower()
             lower_title = str(parsed.get("title") or "").lower()
-            if not parsed.get("is_series"):
+            movie_end_exceptions = ("avengers", "pirates", "dead end", "deep end", "world's end", "weekend")
+            has_end_marker = (lower_fn.startswith("end ") or " end" in lower_fn or lower_title.startswith("end ") or " end" in lower_title) and not any(ex in lower_fn for ex in movie_end_exceptions)
+
+            if has_end_marker:
+                parsed["is_series"] = True
+                cleaned = re.sub(r"^(?:the\s+)?(?:end|finale|final)\s+", "", parsed.get("title") or fn, flags=re.IGNORECASE).strip()
+                cleaned = re.sub(r"[\s\.\-_]+(?:the\s+)?(?:end|finale|final)$", "", cleaned, flags=re.IGNORECASE).strip()
+                parsed["title"] = cleaned
+                if not parsed.get("episode"):
+                    m = re.search(r"\b(?:e|ep|episode)?\s*0?(\d{1,3})\b", fn, re.IGNORECASE)
+                    parsed["episode"] = int(m.group(1)) if m else 999
+                parsed["season"] = parsed.get("season") or 1
+            elif not parsed.get("is_series"):
                 if "flex x cop" in lower_fn or "flexxcop" in lower_fn or "flex x cop" in lower_title:
                     parsed["is_series"] = True
                     parsed["title"] = "Flex X Cop"
@@ -731,6 +743,9 @@ def build_api_media_payload() -> dict:
                     parsed["season"] = parsed.get("season") or 1
 
             title_clean = str(parsed.get("title") or fn or "Unknown")
+            if parsed.get("is_series"):
+                title_clean = re.sub(r"^(?:the\s+)?(?:end|finale|final)\s+", "", title_clean, flags=re.IGNORECASE).strip()
+                title_clean = re.sub(r"[\s\.\-_]+(?:the\s+)?(?:end|finale|final)$", "", title_clean, flags=re.IGNORECASE).strip()
 
             if parsed.get("is_series"):
                 s_num = int(parsed.get("season") or 1)
@@ -955,6 +970,29 @@ async def handle_api_edit(request: web.Request) -> web.Response:
         return web.json_response({"success": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
 
 
+async def handle_api_audit(request: web.Request) -> web.Response:
+    """Returns cached series completeness audit data."""
+    from server.tmdb_auditor import load_cached_audit
+    data = load_cached_audit()
+    return web.json_response({"success": True, "audit": data}, headers={
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
+    })
+
+
+async def handle_api_audit_sync(request: web.Request) -> web.Response:
+    """Triggers background series completeness audit using TMDB."""
+    if not verify_admin_access(request):
+        return web.json_response({"success": False, "error": "Admin authorization required."}, status=401, headers={"Access-Control-Allow-Origin": "*"})
+
+    from server.tmdb_auditor import run_series_completeness_audit
+    asyncio.create_task(run_series_completeness_audit(force_tmdb=True))
+    return web.json_response({"success": True, "message": "Audit started in background."}, headers={
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
+    })
+
+
 def create_stream_app() -> web.Application:
     """Builds and returns the aiohttp web application with route aliases."""
     app = web.Application()
@@ -964,6 +1002,10 @@ def create_stream_app() -> web.Application:
     # Protected Admin API routes
     app.router.add_get("/api/media", handle_api_media)
     app.router.add_route("OPTIONS", "/api/media", handle_cors_options)
+    app.router.add_get("/api/audit", handle_api_audit)
+    app.router.add_route("OPTIONS", "/api/audit", handle_cors_options)
+    app.router.add_post("/api/audit/sync", handle_api_audit_sync)
+    app.router.add_route("OPTIONS", "/api/audit/sync", handle_cors_options)
     app.router.add_post("/api/media/delete", handle_api_delete)
     app.router.add_route("OPTIONS", "/api/media/delete", handle_cors_options)
     app.router.add_post("/api/media/category", handle_api_category)
