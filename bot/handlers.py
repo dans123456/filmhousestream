@@ -171,8 +171,7 @@ async def flush_batch(client: Client, user_id: int):
                 forwarded = await safe_copy_message(msg, config.BIN_CHANNEL_ID, status_msg=status_msg, ep_info=file_name)
                 record_indexed_file(forwarded.id, file_name, parsed=parsed, file_size_str=file_size_str)
                 token = generate_stream_token(forwarded.id)
-                stream_url = f"{config.SERVER_URL}/dl/{token}"
-                blogger_url = build_blogspot_url(stream_url, parsed["title"])
+                stream_url = f"{config.SERVER_URL}/watch/{token}"
 
                 if parsed["is_series"]:
                     title = parsed["title"]
@@ -185,7 +184,7 @@ async def flush_batch(client: Client, user_id: int):
                         f"📺 **{title} — Season {season}**\n\n"
                         f"• **Episode {episode}{ep_sub}**{quality_badge}\n"
                         f"📁 `{file_name}` ({file_size_str})\n\n"
-                        f"🔗 **Stream URL (FilmHouse):**\n`{stream_url}`\n\n"
+                        f"🔗 **Stream Link (Player):**\n`{stream_url}`\n\n"
                         f"🔑 **Token:**\n`{token}`"
                     )
                 else:
@@ -196,14 +195,13 @@ async def flush_batch(client: Client, user_id: int):
                     text = (
                         f"🎬 **{title}{year_str}{qual_str}**\n\n"
                         f"📁 `{file_name}` ({file_size_str})\n\n"
-                        f"🔗 **Stream URL (FilmHouse):**\n`{stream_url}`\n\n"
+                        f"🔗 **Stream Link (Player):**\n`{stream_url}`\n\n"
                         f"🔑 **Token:**\n`{token}`"
                     )
 
                 buttons = [
-                    [InlineKeyboardButton("🍿 Test on Blogspot", url=blogger_url)],
-                    [InlineKeyboardButton("📱 View in Library (WebApp)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library"))],
-                    [InlineKeyboardButton("⬇️ Direct Stream Link", url=stream_url)],
+                    [InlineKeyboardButton("▶️ Test Stream (Player)", url=stream_url)],
+                    [InlineKeyboardButton("📱 View in Library (Admin WebApp)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library"))],
                 ]
                 await status_msg.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
             except Exception as e:
@@ -300,15 +298,13 @@ async def process_movies_batch(client: Client, user_id: int, items: list, status
                     file_size_str=it["file_size_str"]
                 )
                 token = generate_stream_token(forwarded.id)
-                stream_url = f"{config.SERVER_URL}/dl/{token}"
-                blogger_url = build_blogspot_url(stream_url, movie_title)
+                stream_url = f"{config.SERVER_URL}/watch/{token}"
                 processed_versions.append({
                     "quality": it["parsed"].get("quality") or "HD",
                     "file_name": it["file_name"],
                     "file_size_str": it["file_size_str"],
                     "stream_url": stream_url,
                     "token": token,
-                    "blogger_url": blogger_url,
                 })
                 await asyncio.sleep(0.3)
             except Exception as e:
@@ -320,9 +316,8 @@ async def process_movies_batch(client: Client, user_id: int, items: list, status
         year_str = f" ({year})" if year else ""
         top_version = processed_versions[0]
         buttons = [
-            [InlineKeyboardButton("🍿 Test on Blogspot", url=top_version["blogger_url"])],
-            [InlineKeyboardButton("📱 View in Library (WebApp)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library"))],
-            [InlineKeyboardButton("⬇️ Direct Stream Link", url=top_version["stream_url"])],
+            [InlineKeyboardButton("▶️ Test Stream (Player)", url=top_version["stream_url"])],
+            [InlineKeyboardButton("📱 View Library (Admin WebApp)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library"))],
         ]
 
         if len(processed_versions) > 1:
@@ -330,7 +325,7 @@ async def process_movies_batch(client: Client, user_id: int, items: list, status
             text = (
                 f"🎬 **{movie_title}{year_str}**\n"
                 f"✨ **{len(processed_versions)} Qualities Available ({qual_tags})**\n\n"
-                f"📋 **Stream Links for FilmHouse Cinema:**\n\n"
+                f"📋 **Stream Player Links:**\n\n"
             )
             for v in processed_versions:
                 sz = f" ({v['file_size_str']})" if v.get("file_size_str") else ""
@@ -340,7 +335,7 @@ async def process_movies_batch(client: Client, user_id: int, items: list, status
             text = (
                 f"🎬 **{movie_title}{year_str} [{v['quality']}]**\n\n"
                 f"📁 `{v['file_name']}` ({v['file_size_str']})\n\n"
-                f"🔗 **Stream URL (FilmHouse):**\n`{v['stream_url']}`\n\n"
+                f"🔗 **Stream Link (Player):**\n`{v['stream_url']}`\n\n"
                 f"🔑 **Token:**\n`{v['token']}`"
             )
 
@@ -453,6 +448,17 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
         groups[key].append(item)
 
     for (show_title, season), ep_items in groups.items():
+        # Deduplicate identical episodes in the batch (keeping the largest file size)
+        deduped_eps: dict[int, dict] = {}
+        for it in ep_items:
+            e_num = it["parsed"].get("episode") or 1
+            if e_num not in deduped_eps:
+                deduped_eps[e_num] = it
+            else:
+                if it.get("file_size", 0) > deduped_eps[e_num].get("file_size", 0):
+                    deduped_eps[e_num] = it
+        ep_items = list(deduped_eps.values())
+
         # 1. SORT STRICTLY BY EPISODE NUMBER (Ep 1 -> Ep 100+)
         ep_items.sort(key=lambda x: (x["parsed"]["episode"] or 0, x["file_name"]))
         total_eps = len(ep_items)
@@ -481,7 +487,7 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
                     file_size_str=ep_item["file_size_str"]
                 )
                 token = generate_stream_token(forwarded.id)
-                stream_url = f"{config.SERVER_URL}/dl/{token}"
+                stream_url = f"{config.SERVER_URL}/watch/{token}"
 
                 ep_num = ep_item["parsed"]["episode"] or idx
                 end_ep_num = ep_item["parsed"].get("end_episode")
@@ -510,16 +516,38 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
             except Exception as e:
                 logger.error(f"Error forwarding episode {idx}: {e}")
 
-        # 3. BUILD CLEAN COMPACT OUTPUT (Option A: Up to 60 links per message)
+        # Quick TMDB Audit for this Show & Season
+        audit_note = ""
+        try:
+            from server.tmdb_auditor import search_tmdb_tv, get_tmdb_tv_details, format_episode_ranges
+            import aiohttp
+            async with aiohttp.ClientSession() as s:
+                tv_match = await search_tmdb_tv(s, show_title)
+                if tv_match and tv_match.get("id"):
+                    details = await get_tmdb_tv_details(s, tv_match["id"])
+                    if details and "seasons" in details:
+                        s_match = next((x for x in details["seasons"] if x.get("season_number") == season), None)
+                        if s_match:
+                            expected_count = s_match.get("episode_count", 0)
+                            if expected_count > 0:
+                                if len(processed_links) >= expected_count:
+                                    audit_note = f"✅ **TMDB Check: Complete Season ({len(processed_links)}/{expected_count} Episodes)**\n"
+                                else:
+                                    up_nums = set([p["ep_num"] for p in processed_links])
+                                    missing = [n for n in range(1, expected_count + 1) if n not in up_nums]
+                                    m_str = format_episode_ranges(missing)
+                                    audit_note = f"⚠️ **TMDB Check: Incomplete ({len(processed_links)}/{expected_count} Episodes • Missing: {m_str})**\n"
+        except Exception:
+            pass
+
+        # 3. BUILD CLEAN 1-TAP COPY OUTPUT (50 links per message)
         first_stream = processed_links[0]["stream_url"] if processed_links else ""
-        first_blogger = build_blogspot_url(first_stream, f"{show_title} S{season:02d}E01") if first_stream else config.BLOGGER_URL
         buttons = [
-            [InlineKeyboardButton("🍿 Test Ep 1 on Blogspot", url=first_blogger)],
-            [InlineKeyboardButton("📱 View Library (All Episodes)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library"))],
+            [InlineKeyboardButton("▶️ Test Stream (Player)", url=first_stream)],
+            [InlineKeyboardButton("📱 View Library (Admin WebApp)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library"))],
         ]
 
-        # Break links into clean message chunks of 60 episodes (Option A: fits 1-60 in 1 unified message!)
-        chunk_size = 60
+        chunk_size = 50
         total_chunks = (len(processed_links) + chunk_size - 1) // chunk_size
 
         for c_idx in range(total_chunks):
@@ -534,8 +562,9 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
             part_label = f" (Part {c_idx + 1}/{total_chunks} • {ep_range})" if total_chunks > 1 else ""
             header = (
                 f"📺 **{show_title} — Season {season}**{part_label}\n"
-                f"⚡ **{len(processed_links)} Episodes Indexed & Sorted!**\n\n"
-                f"📋 **Copy & Paste into Admin:**\n\n"
+                f"⚡ **{len(processed_links)} Episodes Indexed & Sorted!**\n"
+                f"{audit_note}\n"
+                f"📋 **Tap Code Box Below to Copy All Links (1-Tap Copy):**\n"
             )
 
             lines = []
@@ -545,11 +574,11 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
                 else:
                     ep_tag = f"E{ep['ep_num']:02d}"
                 title_part = f" ({ep['title_label'].lstrip(' — ')})" if ep['title_label'] else ""
-                lines.append(f"`{ep_tag}`{title_part}: `{ep['stream_url']}`\n")
+                lines.append(f"{ep_tag}{title_part}: {ep['stream_url']}")
 
-            body_text = header + "".join(lines)
+            code_block = "\n".join(lines)
+            body_text = f"{header}```{code_block}```"
 
-            # First chunk edits the status message; subsequent chunks send new messages
             reply_markup = InlineKeyboardMarkup(buttons) if c_idx == 0 else None
             try:
                 if c_idx == 0:
@@ -995,23 +1024,24 @@ def register_handlers(app: Client):
                     [InlineKeyboardButton("❌ Cancel Batch", callback_data="batch_cancel_now")],
                 ])
 
-                if count > 1:
+                now = time.time()
+                last_edit = _batch_buffers[user_id].get("last_status_edit", 0.0)
+                if count == 1 or (now - last_edit >= 3.0) or (count % 10 == 0):
+                    _batch_buffers[user_id]["last_status_edit"] = now
                     try:
-                        await status_msg.edit_text(
-                            f"📥 **Batch Buffer: {count} episodes collected!**\n\n"
-                            f"💡 *You can keep forwarding more files (50 to 200+ episodes across multiple forwards).*\n\n"
-                            f"When finished sending all files, tap below or wait 25s:",
-                            reply_markup=btn
-                        )
-                    except Exception:
-                        pass
-                else:
-                    try:
-                        await status_msg.edit_text(
-                            f"⏳ *Received 1 file... Forwarding more episodes?*\n"
-                            f"Send the rest now, or tap below to process:",
-                            reply_markup=btn
-                        )
+                        if count > 1:
+                            await status_msg.edit_text(
+                                f"📥 **Batch Buffer: {count} episodes collected!**\n\n"
+                                f"💡 *Keep forwarding files (50 to 100+ files supported).*\n\n"
+                                f"When finished sending all files, tap below or wait 25s:",
+                                reply_markup=btn
+                            )
+                        else:
+                            await status_msg.edit_text(
+                                f"⏳ *Received 1 file... Forwarding more episodes?*\n"
+                                f"Send the rest now, or tap below to process:",
+                                reply_markup=btn
+                            )
                     except Exception:
                         pass
 
