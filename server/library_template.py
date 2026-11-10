@@ -1796,12 +1796,26 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       }
     }
 
+    let auditPollInterval = null;
+
     async function syncAuditTMDB(e) {
       if (e) e.stopPropagation();
       const btn1 = document.getElementById('syncTmdbBtn');
       const btn2 = document.getElementById('syncTmdbHeaderBtn');
-      if (btn1) { btn1.textContent = '⏳ Syncing...'; btn1.disabled = true; }
-      if (btn2) { btn2.innerHTML = '<span class="refresh-icon">⏳</span><span class="refresh-text">Syncing...</span>'; btn2.disabled = true; }
+
+      const setButtonSyncing = (text) => {
+        if (btn1) { btn1.innerHTML = `⏳ ${text}`; btn1.disabled = true; }
+        if (btn2) { btn2.innerHTML = `<span class="refresh-icon">⏳</span><span class="refresh-text">${text}</span>`; btn2.disabled = true; }
+      };
+
+      const resetButton = () => {
+        if (btn1) { btn1.innerHTML = `🔄 Sync TMDB`; btn1.disabled = false; }
+        if (btn2) { btn2.innerHTML = `<span class="refresh-icon">📡</span><span class="refresh-text">Sync TMDB</span>`; btn2.disabled = false; }
+      };
+
+      setButtonSyncing("Starting...");
+      showToast("🚀 TMDB Background Audit Started! Scanning library series against TMDB...");
+
       try {
         const tgInit = window.Telegram?.WebApp?.initData || '';
         const urlKey = new URLSearchParams(window.location.search).get('admin_key') || '';
@@ -1821,26 +1835,61 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         if (!res || !res.ok) {
           try { res = await fetch(url); } catch(getErr) {}
         }
-        if (res && res.ok) {
-          showToast("🚀 TMDB Background Audit Started! Scanning series against TMDB.");
-          setTimeout(fetchAuditData, 3000);
-          setTimeout(fetchAuditData, 8000);
-          setTimeout(fetchAuditData, 16000);
-          setTimeout(fetchAuditData, 30000);
-        } else {
-          let errDetail = '';
-          try {
-            const errJson = await res.json();
-            if (errJson && errJson.error) errDetail = `: ${errJson.error}`;
-          } catch(e) {}
-          showToast(`⚠️ Could not start audit sync${errDetail}`);
-        }
       } catch (err) {
-        showToast("⚠️ Network error starting audit.");
-      } finally {
-        if (btn1) { btn1.textContent = '🔄 Sync TMDB'; btn1.disabled = false; }
-        if (btn2) { btn2.innerHTML = '<span class="refresh-icon">📡</span><span class="refresh-text">Sync TMDB</span>'; btn2.disabled = false; }
+        console.warn("Audit start trigger error:", err);
       }
+
+      // Start live polling to track scan progress and update UI seamlessly
+      if (auditPollInterval) clearInterval(auditPollInterval);
+      let pollCount = 0;
+      auditPollInterval = setInterval(async () => {
+        pollCount++;
+        try {
+          const tgInit = window.Telegram?.WebApp?.initData || '';
+          const urlKey = new URLSearchParams(window.location.search).get('admin_key') || '';
+          const storedKey = sessionStorage.getItem('filmhouse_admin_key') || urlKey;
+          const params = new URLSearchParams();
+          if (tgInit) params.append('tgWebAppData', tgInit);
+          if (storedKey) params.append('admin_key', storedKey);
+          const qs = params.toString();
+          const pollUrl = '/api/audit' + (qs ? '?' + qs : '');
+
+          const res = await fetch(pollUrl, { headers: getAuthHeaders() });
+          if (res.ok) {
+            const d = await res.json();
+            if (d.success && d.audit) {
+              window.auditData = d.audit;
+              const status = d.audit.status;
+              if (status && status.is_running) {
+                const current = status.current_index || 0;
+                const total = status.total_count || 0;
+                const title = status.current_title ? ` (${status.current_title.slice(0, 14)}...)` : '';
+                setButtonSyncing(`${current}/${total}${title}`);
+              } else {
+                // Scan complete!
+                clearInterval(auditPollInterval);
+                auditPollInterval = null;
+                resetButton();
+                updateCategoryCounts();
+                renderMedia();
+                const count = d.audit.incomplete_count || 0;
+                showToast(`✅ TMDB Audit Complete! ${count} incomplete series found with missing episodes.`);
+                return;
+              }
+            }
+          }
+        } catch(e) {
+          console.warn("Audit poll error:", e);
+        }
+
+        // Safety timeout: max 5 minutes (150 polls * 2s)
+        if (pollCount > 150) {
+          clearInterval(auditPollInterval);
+          auditPollInterval = null;
+          resetButton();
+          fetchAuditData();
+        }
+      }, 2000);
     }
 
     function updateCategoryCounts() {
@@ -1866,19 +1915,16 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         if (el) el.textContent = val;
       }
 
-      let auditIncompleteKeys = new Set();
-      if (window.auditData && window.auditData.incomplete_series) {
-        window.auditData.incomplete_series.forEach(s => auditIncompleteKeys.add(s.canonical_key));
-      }
-
       let incompleteCount = 0;
-      seriesEpCounts.forEach((c, k) => {
-        if (auditIncompleteKeys.size > 0) {
-          if (auditIncompleteKeys.has(k)) incompleteCount++;
-        } else if (c === 1) {
-          incompleteCount++;
-        }
-      });
+      if (window.auditData && typeof window.auditData.incomplete_count === 'number') {
+        incompleteCount = window.auditData.incomplete_count;
+      } else if (window.auditData && Array.isArray(window.auditData.incomplete_series)) {
+        incompleteCount = window.auditData.incomplete_series.length;
+      } else {
+        seriesEpCounts.forEach((c) => {
+          if (c === 1) incompleteCount++;
+        });
+      }
       const incompEl = document.getElementById('count-incomplete') || document.getElementById('count-single_ep');
       if (incompEl) incompEl.textContent = incompleteCount;
     }
@@ -2033,6 +2079,36 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       renderMedia();
     }
 
+    function findAuditInfo(canonicalKey, title) {
+      if (!window.auditData || !window.auditData.incomplete_series) return null;
+      const list = window.auditData.incomplete_series;
+      if (!Array.isArray(list) || list.length === 0) return null;
+
+      // 1. Exact canonical key match
+      let found = list.find(s => s.canonical_key === canonicalKey);
+      if (found) return found;
+
+      // 2. Base key match (without trailing number/suffix)
+      const baseKey = stripSeriesSuffix(canonicalKey).replace(/_\d+$/, '');
+      found = list.find(s => {
+        const sBase = stripSeriesSuffix(s.canonical_key || '').replace(/_\d+$/, '');
+        return sBase && sBase === baseKey;
+      });
+      if (found) return found;
+
+      // 3. Alphanumeric title match
+      if (title) {
+        const normTitle = String(title).toLowerCase().replace(/[^a-z0-9]/g, '');
+        found = list.find(s => {
+          if (!s.title) return false;
+          const sTitle = String(s.title).toLowerCase().replace(/[^a-z0-9]/g, '');
+          return sTitle === normTitle || (normTitle.length >= 5 && (sTitle.startsWith(normTitle) || normTitle.startsWith(sTitle)));
+        });
+        if (found) return found;
+      }
+      return null;
+    }
+
     function renderItemListHtml(items, query, catId = '') {
       // 1. Group series using smart canonical keys with O(1) Map indexing
       const seriesGroupMap = new Map();
@@ -2126,17 +2202,24 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         const isExpanded = isFolderExpanded(group.canonicalKey);
         const totalEpCount = group.allEpisodes.length;
         const catObj = getCategoryObj(group.category);
+        const auditInfo = findAuditInfo(group.canonicalKey, group.title);
 
         subHtml += `
-        <div class="series-folder-card">
+        <div class="series-folder-card ${auditInfo ? 'folder-incomplete' : ''}" style="${auditInfo ? 'border-color: rgba(239,68,68,0.4);' : ''}">
           <div class="folder-header" onclick="toggleFolder('${group.canonicalKey}')">
             <div class="folder-title-box">
-              <div class="folder-icon">📺</div>
+              <div class="folder-icon">${auditInfo ? '⚠️' : '📺'}</div>
               <div class="folder-info">
-                <div class="folder-name" title="${escapeHtml(group.title)}">${escapeHtml(group.title)}</div>
+                <div class="folder-name" title="${escapeHtml(group.title)}">
+                  ${escapeHtml(group.title)}
+                  ${auditInfo ? `<span style="display:inline-block; margin-left:6px; background:rgba(239,68,68,0.25); border:1px solid rgba(239,68,68,0.45); color:#fca5a5; font-size:0.68rem; font-weight:700; padding:1px 6px; border-radius:6px; vertical-align:middle;">Incomplete</span>` : ''}
+                </div>
                 <div class="folder-meta">
                   <span>${seasonKeys.length === 1 ? `Season ${seasonKeys[0]}` : `${seasonKeys.length} Seasons (S${seasonKeys[0]}–S${seasonKeys[seasonKeys.length - 1]})`}</span> • 
-                  <span>${totalEpCount} Episode${totalEpCount > 1 ? 's' : ''}</span>
+                  ${auditInfo && auditInfo.reasons && auditInfo.reasons.length > 0 ? 
+                    `<span style="color:#f87171; font-weight:700;">⚠️ ${escapeHtml(auditInfo.reasons[0])}</span>` : 
+                    `<span>${totalEpCount} Episode${totalEpCount > 1 ? 's' : ''}</span>`
+                  }
                 </div>
               </div>
             </div>
@@ -2149,19 +2232,40 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
 
           ${isExpanded ? `
             <div class="season-subfolders-container">
+              ${auditInfo ? `
+                <div class="audit-warning-box" style="margin:8px 12px 14px 12px; background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.35); border-radius:10px; padding:10px 14px; color:#fca5a5; font-size:0.8rem;">
+                  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+                    <strong style="display:flex; align-items:center; gap:6px; color:#fca5a5; font-size:0.85rem;">
+                      <span>⚠️ TMDB Season Check: Incomplete Series</span>
+                    </strong>
+                    ${auditInfo.tmdb_id ? `<span style="font-size:0.7rem; color:#94a3b8;">TMDB ID: ${auditInfo.tmdb_id}</span>` : ''}
+                  </div>
+                  <div style="display:flex; flex-direction:column; gap:4px;">
+                    ${auditInfo.reasons.map(r => `<div>• <strong>${escapeHtml(r)}</strong></div>`).join('')}
+                  </div>
+                  <div style="margin-top:6px; font-size:0.75rem; color:#cbd5e1;">
+                    💡 <em>Upload the missing episodes to your Telegram bot or channel — FilmHouse will automatically merge them into this folder!</em>
+                  </div>
+                </div>
+              ` : ''}
               ${seasonKeys.map(sNum => {
                 const seasonKey = `${group.canonicalKey}__s${sNum}`;
                 const isSeasonOpen = isSeasonExpanded(seasonKey);
                 const seasonEpisodes = (group.seasons[sNum] || []).sort((a, b) => (a.episode || 0) - (b.episode || 0));
                 window.seasonDataMap[seasonKey] = seasonEpisodes;
+                const sAudit = auditInfo && auditInfo.seasons_summary ? auditInfo.seasons_summary.find(s => s.season === sNum) : null;
 
                 return `
-                <div class="season-subfolder-box">
+                <div class="season-subfolder-box" style="${sAudit && sAudit.expected && seasonEpisodes.length < sAudit.expected ? 'border-color:rgba(239,68,68,0.3);' : ''}">
                   <div class="season-subfolder-header" onclick="toggleSeason(event, '${seasonKey}')">
                     <div style="display:flex; align-items:center; gap:8px;">
                       <span style="font-size:1.1rem;">📂</span>
                       <span class="season-subfolder-title">Season ${sNum}</span>
-                      <span class="season-badge-count">${seasonEpisodes.length} Episodes</span>
+                      ${sAudit && sAudit.expected ? 
+                        `<span class="season-badge-count" style="background:rgba(239,68,68,0.25); color:#fca5a5; font-weight:700;">⚠️ ${seasonEpisodes.length} / ${sAudit.expected} Episodes</span>
+                         ${sAudit.missing_episodes_str ? `<span style="color:#fca5a5; font-size:0.75rem; font-weight:600;">(Missing: ${escapeHtml(sAudit.missing_episodes_str)})</span>` : ''}` :
+                        `<span class="season-badge-count">${seasonEpisodes.length} Episodes</span>`
+                      }
                     </div>
                     <div class="folder-toggle-btn ${isSeasonOpen ? 'expanded' : ''}" style="width:28px; height:28px; font-size:0.75rem;">▼</div>
                   </div>
@@ -2377,8 +2481,10 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         const incompleteItems = filtered.filter(item => {
           if (!item.is_series || !item.series_title) return false;
           const k = getCanonicalSeriesKey(item.series_title);
+          const auditInfo = findAuditInfo(k, item.series_title);
+          if (auditInfo) return true;
           if (auditIncompleteKeys.size > 0) {
-            return auditIncompleteKeys.has(k);
+            return auditIncompleteKeys.has(k) || auditIncompleteKeys.has(stripSeriesSuffix(k));
           }
           return seriesCountMap.get(k) === 1;
         });

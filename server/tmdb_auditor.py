@@ -18,6 +18,38 @@ _mem_audit_cache: Optional[Dict[str, Any]] = None
 _tv_search_cache: Dict[str, Any] = {}
 _tv_details_cache: Dict[int, Any] = {}
 _is_auditing = False
+_audit_status: Dict[str, Any] = {
+    "is_running": False,
+    "current_index": 0,
+    "total_count": 0,
+    "current_title": "",
+    "incomplete_count": 0,
+}
+
+
+def format_episode_ranges(nums: List[int]) -> str:
+    """Formats a list of episode numbers into clean ranges like 'Ep 2–16' or 'Ep 3, Ep 7–9'."""
+    if not nums:
+        return ""
+    sorted_nums = sorted(list(set(nums)))
+    ranges = []
+    start = sorted_nums[0]
+    prev = start
+    for n in sorted_nums[1:]:
+        if n == prev + 1:
+            prev = n
+        else:
+            if start == prev:
+                ranges.append(f"{start}")
+            else:
+                ranges.append(f"{start}–{prev}")
+            start = n
+            prev = n
+    if start == prev:
+        ranges.append(f"{start}")
+    else:
+        ranges.append(f"{start}–{prev}")
+    return "Ep " + ", ".join(ranges)
 
 
 def _ensure_data_dir():
@@ -31,25 +63,30 @@ def _ensure_data_dir():
 
 def load_cached_audit() -> Dict[str, Any]:
     """Returns the cached audit results from memory or disk instantly (0ms latency)."""
-    global _mem_audit_cache
+    global _mem_audit_cache, _audit_status
+    data = None
     if _mem_audit_cache is not None:
-        return _mem_audit_cache
+        data = dict(_mem_audit_cache)
+    else:
+        _ensure_data_dir()
+        if os.path.exists(AUDIT_CACHE_FILE):
+            try:
+                with open(AUDIT_CACHE_FILE, "r", encoding="utf-8") as f:
+                    _mem_audit_cache = json.load(f)
+                    data = dict(_mem_audit_cache)
+            except Exception as e:
+                logger.warning(f"Error reading audit cache: {e}")
 
-    _ensure_data_dir()
-    if os.path.exists(AUDIT_CACHE_FILE):
-        try:
-            with open(AUDIT_CACHE_FILE, "r", encoding="utf-8") as f:
-                _mem_audit_cache = json.load(f)
-                return _mem_audit_cache
-        except Exception as e:
-            logger.warning(f"Error reading audit cache: {e}")
+    if not data:
+        data = {
+            "total_series": 0,
+            "incomplete_count": 0,
+            "incomplete_series": [],
+            "last_audit_time": 0,
+        }
 
-    return {
-        "total_series": 0,
-        "incomplete_count": 0,
-        "incomplete_series": [],
-        "last_audit_time": 0,
-    }
+    data["status"] = dict(_audit_status)
+    return data
 
 
 def save_cached_audit(data: Dict[str, Any]):
@@ -67,6 +104,9 @@ async def search_tmdb_tv(session: aiohttp.ClientSession, title: str) -> Optional
     """Searches TMDB for a TV series by title. Cached in memory."""
     clean_title = re.sub(r"^(?:the\s+)?(?:end|finale|final)\s+", "", title, flags=re.IGNORECASE).strip()
     clean_title = re.sub(r"[\s\.\-_]+(?:the\s+)?(?:end|finale|final)$", "", clean_title, flags=re.IGNORECASE).strip()
+    # Strip any trailing number: e.g. "Embrace In The Dark Night 1" -> "Embrace In The Dark Night"
+    clean_title = re.sub(r"[\s\.\-_]+\d+$", "", clean_title).strip()
+
     norm_key = re.sub(r"[^a-z0-9]+", " ", clean_title.lower()).strip()
     if not norm_key:
         return None
@@ -88,6 +128,19 @@ async def search_tmdb_tv(session: aiohttp.ClientSession, title: str) -> Optional
                     best = results[0]
                     _tv_search_cache[norm_key] = best
                     return best
+                
+                # Fallback: if no results, try without punctuation / simplified
+                simple_title = re.sub(r"['’`]", "", clean_title)
+                if simple_title != clean_title:
+                    fallback_url = f"https://api.themoviedb.org/3/search/tv?api_key={api_key}&query={urllib.parse.quote(simple_title)}"
+                    async with session.get(fallback_url, timeout=aiohttp.ClientTimeout(total=8)) as fb_resp:
+                        if fb_resp.status == 200:
+                            fb_data = await fb_resp.json()
+                            fb_results = fb_data.get("results", [])
+                            if fb_results:
+                                best = fb_results[0]
+                                _tv_search_cache[norm_key] = best
+                                return best
     except Exception as e:
         logger.warning(f"TMDB TV search error for '{clean_title}': {e}")
 
@@ -125,11 +178,17 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
     3. Cross-checks against TMDB to verify if the season has all expected episodes (e.g. 10/16 uploaded).
     4. Caches result to disk.
     """
-    global _is_auditing
+    global _is_auditing, _audit_status
     if _is_auditing:
         return load_cached_audit()
 
     _is_auditing = True
+    _audit_status["is_running"] = True
+    _audit_status["current_index"] = 0
+    _audit_status["total_count"] = 0
+    _audit_status["current_title"] = ""
+    _audit_status["incomplete_count"] = 0
+
     try:
         from server.stream_server import build_api_media_payload
         payload = build_api_media_payload()
@@ -144,6 +203,10 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
                 clean_title = re.sub(r"^(?:the\s+)?(?:end|finale|final)\s+", "", raw_title, flags=re.IGNORECASE).strip()
                 clean_title = re.sub(r"[\s\.\-_]+(?:the\s+)?(?:end|finale|final)$", "", clean_title, flags=re.IGNORECASE).strip()
                 k = re.sub(r"[^a-z0-9]+", "_", clean_title.lower()).strip("_")
+                # Normalize trailing digits/part numbers from k (e.g. embrace_in_the_dark_night_1 -> embrace_in_the_dark_night)
+                base_k = re.sub(r"_\d+$", "", k)
+                if base_k and len(base_k) >= 3:
+                    k = base_k
                 if not k:
                     continue
 
@@ -172,12 +235,18 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
 
         incomplete_list = []
         api_key = getattr(config, "TMDB_API_KEY", "")
+        total_series = len(series_groups)
+        _audit_status["total_count"] = total_series
 
         async with aiohttp.ClientSession() as session:
-            for k, group in series_groups.items():
+            for idx, (k, group) in enumerate(series_groups.items(), start=1):
                 title = group["title"]
                 category = group["category"]
                 total_uploaded = group["total_uploaded"]
+
+                _audit_status["current_index"] = idx
+                _audit_status["current_title"] = title
+                _audit_status["incomplete_count"] = len(incomplete_list)
 
                 # 1. Local Gap Analysis (Works 100% offline without TMDB)
                 missing_gaps = []
@@ -209,8 +278,8 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
                                 s_no = s.get("season_number", 0)
                                 if s_no > 0:  # Ignore specials (season 0)
                                     expected_by_season[s_no] = s.get("episode_count", 0)
-                    # Breathing pause: 250ms between TMDB queries to be polite to TMDB API limits
-                    await asyncio.sleep(0.25)
+                    # Breathing pause: 200ms between TMDB queries to be polite to TMDB API limits
+                    await asyncio.sleep(0.2)
 
                 # 3. Determine Incompleteness
                 is_incomplete = False
@@ -227,29 +296,36 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
                         expected_count = expected_by_season[s_num]
                         if uploaded_count < expected_count:
                             is_incomplete = True
-                            missing_tail = list(range(max_uploaded_ep + 1, expected_count + 1))
-                            reasons.append(f"Season {s_num}: {uploaded_count}/{expected_count} episodes uploaded.")
+                            uploaded_set = set(ep_nums)
+                            full_expected_set = set(range(1, expected_count + 1))
+                            missing_all = sorted(list(full_expected_set - uploaded_set))
+                            missing_str = format_episode_ranges(missing_all)
+                            reasons.append(f"Season {s_num}: {uploaded_count}/{expected_count} uploaded (Missing: {missing_str})")
                             status_summary.append({
                                 "season": s_num,
                                 "uploaded": uploaded_count,
                                 "expected": expected_count,
-                                "missing_tail": missing_tail[:10],
+                                "missing_episodes": missing_all,
+                                "missing_episodes_str": missing_str,
+                                "missing_tail": [e for e in missing_all if e > max_uploaded_ep],
                             })
                     elif total_uploaded == 1:
                         # Only 1 episode in entire series
                         is_incomplete = True
-                        reasons.append(f"Only 1 episode recorded (S{s_num:02d}E{max_uploaded_ep:02d}).")
+                        reasons.append(f"Season {s_num}: Only 1 episode uploaded (Episode {max_uploaded_ep}).")
                         status_summary.append({
                             "season": s_num,
                             "uploaded": 1,
                             "expected": None,
+                            "missing_episodes": [],
+                            "missing_episodes_str": "",
                         })
 
                 # Check if internal gaps were found
                 if missing_gaps:
                     is_incomplete = True
                     for s_num, gaps in missing_gaps:
-                        reasons.append(f"Season {s_num} has missing gaps: Episode(s) {', '.join(map(str, gaps))}")
+                        reasons.append(f"Season {s_num} has missing gaps: {format_episode_ranges(gaps)}")
 
                 if is_incomplete:
                     incomplete_list.append({
@@ -264,11 +340,16 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
                     })
 
         incomplete_list.sort(key=lambda x: x["title"].lower())
+        _audit_status["incomplete_count"] = len(incomplete_list)
+        _audit_status["is_running"] = False
+        _audit_status["current_index"] = total_series
+
         audit_result = {
             "total_series": len(series_groups),
             "incomplete_count": len(incomplete_list),
             "incomplete_series": incomplete_list,
             "last_audit_time": int(time.time()),
+            "status": dict(_audit_status),
         }
         save_cached_audit(audit_result)
         return audit_result
@@ -278,4 +359,5 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
         return load_cached_audit()
     finally:
         _is_auditing = False
+        _audit_status["is_running"] = False
 
