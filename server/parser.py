@@ -68,10 +68,14 @@ VEGGIETALES_PHRASES = (
 
 # Patterns for Season and Episode detection
 SERIES_PATTERNS = [
-    # Multi-episode: S01E01-E02, S01E01-02, S01E01E02, S01E01 - E02
-    re.compile(r"[sS](?P<season>\d{1,2})[\s\.\-_]*[eE](?P<episode>\d{1,3})[\s\.\-_]*(?:-|to|e|E)[\s\.\-_]*(?:[eE])?(?P<end_episode>\d{1,3})"),
+    # Multi-episode: S01E01-E02, S01E01-02, S01E01E02, S01E01 - E02, S01E01&02, S01E01+02
+    re.compile(r"[sS](?P<season>\d{1,2})[\s\.\-_]*[eE](?P<episode>\d{1,3})[\s\.\-_]*(?:-|to|e|E|&|\+)[\s\.\-_]*(?:[eE])?(?P<end_episode>\d{1,3})"),
+    # Multi-episode Season X Episode Y-Z, Season X Ep Y-Z, Season X Episode Y & Z
+    re.compile(r"[sS]eason[\s\.\-_]*(?P<season>\d{1,2})[\s\.\-_]*[eE]p(?:isode)?[\s\.\-_]*(?P<episode>\d{1,3})[\s\.\-_]*(?:-|to|&|\+)[\s\.\-_]*(?:[eE]p(?:isode)?)?[\s\.\-_]*(?P<end_episode>\d{1,3})", re.IGNORECASE),
     # 1x01-02, 01x01-02
-    re.compile(r"(?P<season>\d{1,2})[xX](?P<episode>\d{1,3})[\s\.\-_]*(?:-|to)[\s\.\-_]*(?P<end_episode>\d{1,3})"),
+    re.compile(r"(?P<season>\d{1,2})[xX](?P<episode>\d{1,3})[\s\.\-_]*(?:-|to|&|\+)[\s\.\-_]*(?P<end_episode>\d{1,3})"),
+    # Multi-episode standalone: Episode 12-13, Ep 12-13, Ep 12 & 13, Ep 12-E13, Episode 12 to 13
+    re.compile(r"\b(?:[eE]p(?:isode)?|EP)[\s\.\-_]*(?P<episode>\d{1,3})[\s\.\-_]*(?:-|to|&|\+)[\s\.\-_]*(?:[eE]p(?:isode)?)?[\s\.\-_]*(?P<end_episode>\d{1,3})\b", re.IGNORECASE),
     # S01E02, S1E2, s01e02, S01.E02, S01 - E02
     re.compile(r"[sS](?P<season>\d{1,2})[\s\.\-_]*[eE](?P<episode>\d{1,3})"),
     # S1 - 01, S01 - 02, S1 01, S1 - 1, S01.01 (e.g. Archive 81 S1 - 01)

@@ -779,8 +779,12 @@ def build_api_media_payload() -> dict:
             if parsed.get("is_series"):
                 s_num = int(parsed.get("season") or 1)
                 e_num = int(parsed.get("episode") or 1)
+                end_num = parsed.get("end_episode")
                 s_str = f"S{s_num:02d}"
-                e_str = f"E{e_num:02d}"
+                if end_num and int(end_num) > e_num:
+                    e_str = f"E{e_num:02d}-E{int(end_num):02d}"
+                else:
+                    e_str = f"E{e_num:02d}"
                 ep_sub = f" — {parsed['episode_title']}" if parsed.get("episode_title") else ""
                 display_title = f"{title_clean} {s_str}{e_str}{ep_sub}"
             else:
@@ -817,6 +821,7 @@ def build_api_media_payload() -> dict:
                 "series_title": title_clean if parsed.get("is_series") else None,
                 "season": int(parsed.get("season") or 1) if parsed.get("is_series") else None,
                 "episode": int(parsed.get("episode") or 1) if parsed.get("is_series") else None,
+                "end_episode": int(parsed.get("end_episode")) if parsed.get("end_episode") else None,
                 "episode_title": parsed.get("episode_title") if parsed.get("is_series") else None,
                 "quality": parsed.get("quality") or "HD",
                 "is_series": bool(parsed.get("is_series", False)),

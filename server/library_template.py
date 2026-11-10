@@ -2425,7 +2425,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
                               <div class="card-checkbox">
                                 <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="onCardCheck(event, ${ep.message_id})">
                               </div>
-                              <span class="episode-num-badge">Ep ${ep.episode || 1}</span>
+                              <span class="episode-num-badge">Ep ${ep.end_episode && ep.end_episode > ep.episode ? ep.episode + '-' + ep.end_episode : (ep.episode || 1)}</span>
                               <span class="episode-title-text" title="${escapeHtml(ep.file_name)}">${escapeHtml(epSub || ep.file_name)}</span>
                             </div>
                             <span style="font-size:0.7rem; color:#94a3b8;">${escapeHtml(ep.file_size_str || '')}</span>

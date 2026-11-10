@@ -221,17 +221,19 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
 
                 s_num = int(it.get("season") or 1)
                 e_num = int(it.get("episode") or 1)
+                end_e_num = int(it.get("end_episode")) if it.get("end_episode") else None
                 if s_num not in series_groups[k]["seasons"]:
                     series_groups[k]["seasons"][s_num] = []
 
                 if not any(x["episode"] == e_num for x in series_groups[k]["seasons"][s_num]):
                     series_groups[k]["seasons"][s_num].append({
                         "episode": e_num,
+                        "end_episode": end_e_num,
                         "message_id": it.get("message_id"),
                         "file_name": it.get("original_file_name") or it.get("file_name"),
                         "quality": it.get("quality", "HD"),
                     })
-                    series_groups[k]["total_uploaded"] += 1
+                    series_groups[k]["total_uploaded"] += (end_e_num - e_num + 1) if (end_e_num and end_e_num > e_num) else 1
 
         incomplete_list = []
         api_key = getattr(config, "TMDB_API_KEY", "")
@@ -251,14 +253,21 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
                 # 1. Local Gap Analysis (Works 100% offline without TMDB)
                 missing_gaps = []
                 for s_num, eps in group["seasons"].items():
-                    ep_nums = sorted([e["episode"] for e in eps if e["episode"] < 900])
+                    covered_set = set()
+                    for e in eps:
+                        ep_start = e["episode"]
+                        ep_end = e.get("end_episode")
+                        if ep_end and ep_end >= ep_start and ep_end < 900:
+                            covered_set.update(range(ep_start, ep_end + 1))
+                        elif ep_start < 900:
+                            covered_set.add(ep_start)
+                    ep_nums = sorted(list(covered_set))
                     if len(ep_nums) > 1:
                         # Check for gaps between min and max
                         min_ep = ep_nums[0]
                         max_ep = ep_nums[-1]
                         expected_range = set(range(min_ep, max_ep + 1))
-                        actual_set = set(ep_nums)
-                        missing = sorted(list(expected_range - actual_set))
+                        missing = sorted(list(expected_range - covered_set))
                         if missing:
                             missing_gaps.append((s_num, missing))
 
@@ -288,17 +297,24 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
 
                 # Check each recorded season against TMDB
                 for s_num, eps in group["seasons"].items():
-                    uploaded_count = len(eps)
-                    ep_nums = sorted([e["episode"] for e in eps if e["episode"] < 900])
-                    max_uploaded_ep = ep_nums[-1] if ep_nums else uploaded_count
+                    covered_set = set()
+                    for e in eps:
+                        ep_start = e["episode"]
+                        ep_end = e.get("end_episode")
+                        if ep_end and ep_end >= ep_start and ep_end < 900:
+                            covered_set.update(range(ep_start, ep_end + 1))
+                        elif ep_start < 900:
+                            covered_set.add(ep_start)
+                    ep_nums = sorted(list(covered_set))
+                    uploaded_count = len(ep_nums)
+                    max_uploaded_ep = ep_nums[-1] if ep_nums else len(eps)
 
                     if s_num in expected_by_season:
                         expected_count = expected_by_season[s_num]
                         if uploaded_count < expected_count:
                             is_incomplete = True
-                            uploaded_set = set(ep_nums)
                             full_expected_set = set(range(1, expected_count + 1))
-                            missing_all = sorted(list(full_expected_set - uploaded_set))
+                            missing_all = sorted(list(full_expected_set - covered_set))
                             missing_str = format_episode_ranges(missing_all)
                             reasons.append(f"Season {s_num}: {uploaded_count}/{expected_count} uploaded (Missing: {missing_str})")
                             status_summary.append({
