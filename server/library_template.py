@@ -1381,6 +1381,10 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           return;
         }
 
+        if (!res.ok) {
+          throw new Error(`Server status ${res.status}`);
+        }
+
         const rawText = await res.text();
         const data = safeParseJson(rawText);
         if (!data || !data.success) {

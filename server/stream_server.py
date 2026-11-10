@@ -629,7 +629,7 @@ async def handle_stream(request: web.Request) -> web.StreamResponse:
 
 async def handle_library(request: web.Request) -> web.Response:
     """Renders the mobile-first Telegram Mini App Library."""
-    resp = web.Response(
+    return web.Response(
         text=LIBRARY_HTML,
         content_type="text/html",
         headers={
@@ -637,8 +637,6 @@ async def handle_library(request: web.Request) -> web.Response:
             "Content-Security-Policy": "frame-ancestors *",
         }
     )
-    resp.enable_compression()
-    return resp
 
 
 async def handle_cors_options(request: web.Request) -> web.Response:
@@ -803,12 +801,10 @@ async def handle_api_media(request: web.Request) -> web.Response:
     if _api_media_cache is not None and (now - _api_media_cache_time) < _api_media_cache_ttl:
         resp_data = dict(_api_media_cache)
         resp_data["is_admin"] = is_admin
-        resp = web.json_response(resp_data, headers={
+        return web.json_response(resp_data, headers={
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
         })
-        resp.enable_compression()
-        return resp
 
     try:
         payload = build_api_media_payload()
@@ -818,12 +814,10 @@ async def handle_api_media(request: web.Request) -> web.Response:
         resp_data = dict(payload)
         resp_data["is_admin"] = is_admin
 
-        resp = web.json_response(resp_data, headers={
+        return web.json_response(resp_data, headers={
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
         })
-        resp.enable_compression()
-        return resp
     except Exception as e:
         logger.error(f"Error in handle_api_media: {e}", exc_info=True)
         return web.json_response({
