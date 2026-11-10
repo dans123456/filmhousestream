@@ -6,7 +6,7 @@ import config
 from bot.client import get_tg_client
 from bot.handlers import register_handlers
 from bot.tunnel_sync import auto_sync_tunnel_loop
-from server.stream_server import create_stream_app
+from server.stream_server import create_stream_app, prewarm_media_cache
 
 # Configure logging
 logging.basicConfig(
@@ -54,6 +54,10 @@ async def main():
     site = web.TCPSite(runner, config.HOST, config.PORT)
     await site.start()
     logger.info(f"HTTP 206 Streaming Engine active on http://{config.HOST}:{config.PORT}")
+
+    # Pre-warm media cache in background so initial WebApp loads in <1ms
+    loop = asyncio.get_running_loop()
+    loop.run_in_executor(None, prewarm_media_cache)
 
     # 4. Start Cloudflare Tunnel Auto-Sync watcher (self-healing URL updater)
     asyncio.create_task(auto_sync_tunnel_loop())

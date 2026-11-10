@@ -629,7 +629,7 @@ async def handle_stream(request: web.Request) -> web.StreamResponse:
 
 async def handle_library(request: web.Request) -> web.Response:
     """Renders the mobile-first Telegram Mini App Library."""
-    return web.Response(
+    resp = web.Response(
         text=LIBRARY_HTML,
         content_type="text/html",
         headers={
@@ -637,6 +637,8 @@ async def handle_library(request: web.Request) -> web.Response:
             "Content-Security-Policy": "frame-ancestors *",
         }
     )
+    resp.enable_compression()
+    return resp
 
 
 async def handle_cors_options(request: web.Request) -> web.Response:
@@ -769,6 +771,19 @@ def build_api_media_payload() -> dict:
     }
 
 
+def prewarm_media_cache():
+    """Builds the in-memory media payload cache at startup so the very first request is served in <1ms."""
+    global _api_media_cache, _api_media_cache_time
+    try:
+        logger.info("Pre-warming media library cache for 6,400+ titles...")
+        payload = build_api_media_payload()
+        _api_media_cache = payload
+        _api_media_cache_time = time.time()
+        logger.info(f"Media library cache pre-warmed: {len(payload.get('items', []))} titles loaded into RAM.")
+    except Exception as e:
+        logger.warning(f"Notice during media cache pre-warming: {e}")
+
+
 async def handle_api_media(request: web.Request) -> web.Response:
     """Returns JSON array of all tracked media items."""
     # 1. Rate limiting & anti-abuse (generous 300 req/min for smooth admin browsing)
@@ -788,10 +803,12 @@ async def handle_api_media(request: web.Request) -> web.Response:
     if _api_media_cache is not None and (now - _api_media_cache_time) < _api_media_cache_ttl:
         resp_data = dict(_api_media_cache)
         resp_data["is_admin"] = is_admin
-        return web.json_response(resp_data, headers={
+        resp = web.json_response(resp_data, headers={
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
         })
+        resp.enable_compression()
+        return resp
 
     try:
         payload = build_api_media_payload()
@@ -801,10 +818,12 @@ async def handle_api_media(request: web.Request) -> web.Response:
         resp_data = dict(payload)
         resp_data["is_admin"] = is_admin
 
-        return web.json_response(resp_data, headers={
+        resp = web.json_response(resp_data, headers={
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
         })
+        resp.enable_compression()
+        return resp
     except Exception as e:
         logger.error(f"Error in handle_api_media: {e}", exc_info=True)
         return web.json_response({

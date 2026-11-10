@@ -1119,7 +1119,11 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
     </div>
 
     <div id="mediaGrid" class="media-grid">
-      <!-- Media Cards Injected Here -->
+      <div id="loadingPlaceholder" class="empty-state" style="padding: 50px 20px;">
+        <div style="font-size:2.4rem; margin-bottom:12px;">🍿</div>
+        <div style="font-size:1.05rem; font-weight:700; color:#fff; margin-bottom:6px;">Opening Cinema Library...</div>
+        <div style="font-size:0.8rem; color:#94a3b8;">Loading over 6,400 titles...</div>
+      </div>
     </div>
   </div>
 
