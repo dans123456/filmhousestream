@@ -654,6 +654,7 @@ async def handle_cors_options(request: web.Request) -> web.Response:
 _api_media_cache = None
 _api_media_cache_time = 0.0
 _api_media_cache_ttl = 300.0  # 5-minute cache TTL (instantly invalidated on any modification)
+_parsed_filename_cache = {}
 
 
 def invalidate_media_cache():
@@ -663,7 +664,8 @@ def invalidate_media_cache():
 
 
 def build_api_media_payload() -> dict:
-    """Ultra-fast payload generator leveraging stored metadata to avoid redundant parsing across thousands of files."""
+    """Ultra-fast payload generator leveraging stored metadata and memoization to avoid redundant parsing."""
+    global _parsed_filename_cache
     records = get_tracked_files()
     items = []
     base_player = config.BLOGGER_URL.rstrip("/")
@@ -677,11 +679,15 @@ def build_api_media_payload() -> dict:
             fn = r.get("file_name") or r.get("original_filename") or f"video_{mid}.mp4"
             stored_parsed = r.get("parsed") or {}
 
-            # Fast path: use already parsed data stored during indexing if valid
+            # Fast path 1: use already parsed data stored during indexing if valid
             if isinstance(stored_parsed, dict) and stored_parsed.get("title") and stored_parsed.get("title") != "Unknown Media":
                 parsed = dict(stored_parsed)
+            # Fast path 2: check memory cache for this exact filename
+            elif fn in _parsed_filename_cache:
+                parsed = dict(_parsed_filename_cache[fn])
             else:
                 parsed = parse_filename(fn)
+                _parsed_filename_cache[fn] = dict(parsed)
 
             # Override/coalesce any fields updated directly
             if stored_parsed.get("season") is not None:
@@ -764,7 +770,7 @@ def build_api_media_payload() -> dict:
 
 
 async def handle_api_media(request: web.Request) -> web.Response:
-    """Returns JSON array of all tracked media items (ADMIN ONLY)."""
+    """Returns JSON array of all tracked media items."""
     # 1. Rate limiting & anti-abuse (generous 300 req/min for smooth admin browsing)
     if not check_rate_limit(request, max_requests=300, window_sec=60):
         return web.json_response(
@@ -773,22 +779,16 @@ async def handle_api_media(request: web.Request) -> web.Response:
             headers={"Access-Control-Allow-Origin": "*"}
         )
 
-    # 2. Strict Admin Verification
-    if not verify_admin_access(request):
-        return web.json_response(
-            {"success": False, "error": "Unauthorized: FilmHouse Admin authorization required."},
-            status=401,
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
-            }
-        )
+    # 2. Check admin status for capabilities
+    is_admin = verify_admin_access(request)
 
     # 3. Check fast in-memory cache
     global _api_media_cache, _api_media_cache_time
     now = time.time()
     if _api_media_cache is not None and (now - _api_media_cache_time) < _api_media_cache_ttl:
-        return web.json_response(_api_media_cache, headers={
+        resp_data = dict(_api_media_cache)
+        resp_data["is_admin"] = is_admin
+        return web.json_response(resp_data, headers={
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
         })
@@ -798,7 +798,10 @@ async def handle_api_media(request: web.Request) -> web.Response:
         _api_media_cache = payload
         _api_media_cache_time = now
 
-        return web.json_response(payload, headers={
+        resp_data = dict(payload)
+        resp_data["is_admin"] = is_admin
+
+        return web.json_response(resp_data, headers={
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
         })

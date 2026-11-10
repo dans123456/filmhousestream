@@ -1380,9 +1380,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         const rawText = await res.text();
         const data = safeParseJson(rawText);
         if (!data || !data.success) {
-          if (statsBadge) statsBadge.textContent = 'Auth Required';
-          showAuthModal();
-          return;
+          throw new Error((data && data.error) || 'Invalid server response');
         }
 
         hideAuthModal();

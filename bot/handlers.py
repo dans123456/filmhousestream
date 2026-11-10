@@ -82,7 +82,7 @@ def build_blogspot_url(stream_url: str, title: str) -> str:
 
 def get_main_menu_keyboard() -> InlineKeyboardMarkup:
     """Constructs the interactive main dashboard buttons."""
-    library_url = f"{config.SERVER_URL}/library"
+    library_url = f"{config.SERVER_URL}/library?admin_key={config.ADMIN_SECRET}"
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📱 Open Media Library (WebApp)", web_app=WebAppInfo(url=library_url))],
         [InlineKeyboardButton("🍿 FilmHouse Web Player", url=config.BLOGGER_URL)],
@@ -581,7 +581,7 @@ def register_handlers(app: Client):
         """Opens the FilmHouse Media Library Mini App."""
         if not is_authorized(message.from_user.id):
             return
-        web_app_url = f"{config.SERVER_URL}/library"
+        web_app_url = f"{config.SERVER_URL}/library?admin_key={config.ADMIN_SECRET}"
         browser_url = f"{config.SERVER_URL}/library?admin_key={config.ADMIN_SECRET}"
         buttons = [
             [InlineKeyboardButton("📱 Open Media Library (WebApp)", web_app=WebAppInfo(url=web_app_url))],
