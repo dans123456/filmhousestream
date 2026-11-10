@@ -1626,6 +1626,8 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       }
 
       // Known Franchise Aliases
+      if (norm.startsWith('a_good_day_to_be_a_dog') || norm.includes('good_day_to_be_a_dog')) return 'a_good_day_to_be_a_dog';
+      if (norm.startsWith('hidden_love')) return 'hidden_love';
       if (norm.startsWith('flex_x_cop') || norm.startsWith('flexxcop') || norm.includes('flex_x_cop')) return 'flex_x_cop';
       if (norm.startsWith('mr_bean') || norm.startsWith('mrbean') || (norm.includes('bean') && !norm.includes('lord_of_the_beans'))) return 'mr_bean';
       if (norm.startsWith('georgie_and_mandy')) return 'georgie_and_mandys_first_marriage';
@@ -1683,6 +1685,8 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       if (col === 'mixedish') return 'Mixed-ish';
       if (col === 'utd' || col === 'underthedome') return 'Under the Dome';
       if (col === 'tvd' || col === 'thevampirediaries' || col === 'vampirediaries' || col === 'the') return 'The Vampire Diaries';
+      if (col.startsWith('agooddaytobeadog')) return 'A Good Day to Be a Dog';
+      if (col.startsWith('hiddenlove')) return 'Hidden Love';
       if (col.startsWith('noobees')) return 'Noobees';
       if (col.includes('adthebible') || col.includes('adthebiblecontinues')) return 'A.D. The Bible Continues';
       if (col.includes('kaibutsu') || col === 'mylittlemonster') return 'My Little Monster';
@@ -1819,7 +1823,12 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           setTimeout(fetchAuditData, 16000);
           setTimeout(fetchAuditData, 30000);
         } else {
-          showToast("⚠️ Could not start audit sync.");
+          let errDetail = '';
+          try {
+            const errJson = await res.json();
+            if (errJson && errJson.error) errDetail = `: ${errJson.error}`;
+          } catch(e) {}
+          showToast(`⚠️ Could not start audit sync${errDetail}`);
         }
       } catch (err) {
         showToast("⚠️ Network error starting audit.");

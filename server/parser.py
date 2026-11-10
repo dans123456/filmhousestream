@@ -96,6 +96,9 @@ SERIES_PATTERNS = [
     re.compile(r"\b(?:[eE]p(?:isode)?|EP)[\s\.\-_]*(?P<episode>\d{1,3})\b"),
     # Standalone E01, E02 (assumes Season 1) (e.g. The.Remarried.Empress.E01.720p)
     re.compile(r"(?:^|[\s\.\-_])[eE](?P<episode>\d{1,3})(?:[\s\.\-_]|\b)"),
+    # S01 Special, Season 1 Special, S1 Specials, S01 OVA
+    re.compile(r"[sS](?P<season>\d{1,2})[\s\.\-_]+(?P<special>special|specials|sp|ova)\b", re.IGNORECASE),
+    re.compile(r"[sS]eason[\s\.\-_]*(?P<season>\d{1,2})[\s\.\-_]+(?P<special>special|specials|sp|ova)\b", re.IGNORECASE),
 ]
 
 # Pattern for bare episode names with no show name (e.g. "01", "02", "Ep 03", "Episode 4", "S01E05")
@@ -126,6 +129,10 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
 
     # Remove file extension (.mkv, .mp4, .avi, etc.)
     name = re.sub(r"\.[a-zA-Z0-9]{2,4}$", "", raw_filename)
+
+    # Normalize common letter 'o' / 'O' typos in S01E02 (e.g. So1e03 -> S01E03, S01eO3 -> S01E03)
+    name = re.sub(r"\b[sS][oO](\d{1,2})", r"S0\1", name)
+    name = re.sub(r"[eE][oO](\d{1,2})", r"E0\1", name)
     
     # Replace dots, underscores, and dashes with spaces for analysis
     working_name = name.replace(".", " ").replace("_", " ")
@@ -167,6 +174,9 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
                 season = 1  # Default to Season 1 if only Episode is mentioned
             if "episode" in groups and groups["episode"]:
                 episode = int(groups["episode"])
+            if "special" in groups and groups["special"]:
+                episode = 0
+                episode_title = "Special"
             if "end_episode" in groups and groups["end_episode"]:
                 end_episode = int(groups["end_episode"])
             
@@ -538,6 +548,7 @@ def detect_category(raw_filename: str, clean_title: str, is_series: bool) -> str
         r"\b(the glory|vincenzo|itaewon class|descendants of the sun|goblin|business proposal)\b",
         r"\b(twinkling watermelon|marry my husband|lovely runner|hotel del luna|strong girl)\b",
         r"\b(weightlifting fairy|true beauty|extraordinary attorney woo|sweet home|moving|pyramid game)\b",
+        r"\b(a good day to be a dog|hidden love|mr queen|mr. queen|flex x cop|flexxcop)\b",
     ]
     for pat in kdrama_patterns:
         if re.search(pat, text):

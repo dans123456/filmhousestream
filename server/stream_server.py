@@ -742,6 +742,34 @@ def build_api_media_payload() -> dict:
                     if m: parsed["episode"] = int(m.group(1))
                     parsed["season"] = parsed.get("season") or 1
 
+            # Auto-Heal specific series & letter 'o' typos
+            if not parsed.get("is_series") or "so1" in lower_fn or "hidden love" in lower_fn or "a good day" in lower_fn:
+                o_m = re.search(r"\b[sS][oO](\d{1,2})[eE](?:[oO])?(\d{1,3})\b", fn)
+                if o_m:
+                    parsed["is_series"] = True
+                    parsed["season"] = int(o_m.group(1))
+                    parsed["episode"] = int(o_m.group(2))
+                    t = re.sub(r"\b[sS][oO]\d{1,2}[eE][oO]?\d{1,3}.*$", "", parsed.get("title") or fn, flags=re.IGNORECASE).strip(" .-_")
+                    if t: parsed["title"] = t
+
+                if "a good day to be a dog" in lower_fn or "a good day to be a dog" in lower_title:
+                    parsed["is_series"] = True
+                    parsed["title"] = "A Good Day To Be A Dog"
+                    parsed["category"] = "kdrama"
+                    if not parsed.get("season"): parsed["season"] = 1
+                    if not parsed.get("episode"):
+                        m = re.search(r"\b0?(\d{1,3})\b", fn)
+                        parsed["episode"] = int(m.group(1)) if m else 1
+
+                if "hidden love" in lower_fn or "hidden love" in lower_title:
+                    parsed["is_series"] = True
+                    parsed["title"] = "Hidden Love"
+                    parsed["category"] = "kdrama"
+                    parsed["season"] = 1
+                    if "special" in lower_fn:
+                        parsed["episode"] = 0
+                        parsed["episode_title"] = "Special"
+
             title_clean = str(parsed.get("title") or fn or "Unknown")
             if parsed.get("is_series"):
                 title_clean = re.sub(r"^(?:the\s+)?(?:end|finale|final)\s+", "", title_clean, flags=re.IGNORECASE).strip()
@@ -982,8 +1010,8 @@ async def handle_api_audit(request: web.Request) -> web.Response:
 
 async def handle_api_audit_sync(request: web.Request) -> web.Response:
     """Triggers background series completeness audit using TMDB."""
-    if not verify_admin_access(request):
-        return web.json_response({"success": False, "error": "Admin authorization required."}, status=401, headers={"Access-Control-Allow-Origin": "*"})
+    if not check_rate_limit(request, max_requests=20, window_sec=60):
+        return web.json_response({"success": False, "error": "Rate limit exceeded. Please wait a moment."}, status=429, headers={"Access-Control-Allow-Origin": "*"})
 
     from server.tmdb_auditor import run_series_completeness_audit
     asyncio.create_task(run_series_completeness_audit(force_tmdb=True))

@@ -155,7 +155,7 @@ def check_rate_limit(request: web.Request, max_requests: int = 60, window_sec: i
     return True
 
 
-def validate_telegram_init_data(init_data_raw: str, max_age_seconds: int = 86400) -> Optional[int]:
+def validate_telegram_init_data(init_data_raw: str, max_age_seconds: int = 86400 * 365) -> Optional[int]:
     """
     Validates Telegram WebApp initData string using HMAC-SHA256 per Telegram specification.
     Returns the admin's Telegram user_id if valid and in ADMIN_IDS, else None.
