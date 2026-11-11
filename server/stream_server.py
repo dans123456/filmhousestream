@@ -1103,6 +1103,41 @@ async def handle_api_audit_sync(request: web.Request) -> web.Response:
         return web.json_response({"success": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
 
 
+async def handle_api_toggle_complete(request: web.Request) -> web.Response:
+    """Toggles complete status for a season or series (ADMIN ONLY)."""
+    if not check_rate_limit(request, max_requests=60, window_sec=60):
+        return web.json_response({"success": False, "error": "Rate limit exceeded."}, status=429, headers={"Access-Control-Allow-Origin": "*"})
+
+    if not verify_admin_access(request):
+        return web.json_response({"success": False, "error": "Unauthorized: FilmHouse Admin authorization required."}, status=401, headers={"Access-Control-Allow-Origin": "*"})
+
+    try:
+        data = await request.json()
+        key = data.get("key")
+        canonical_key = data.get("canonical_key")
+        season = data.get("season")
+        if not key:
+            if canonical_key and season:
+                key = f"{canonical_key}__s{season}"
+            elif canonical_key:
+                key = canonical_key
+
+        if not key:
+            return web.json_response({"success": False, "error": "Missing key or canonical_key."}, status=400, headers={"Access-Control-Allow-Origin": "*"})
+
+        from server.tmdb_auditor import toggle_completed_season, get_completed_seasons
+        new_state = toggle_completed_season(key)
+        return web.json_response({
+            "success": True,
+            "key": key,
+            "is_complete": new_state,
+            "completed_seasons": get_completed_seasons()
+        }, headers={"Access-Control-Allow-Origin": "*"})
+    except Exception as e:
+        logger.error(f"Error in handle_api_toggle_complete: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
+
+
 def create_stream_app() -> web.Application:
     """Builds and returns the aiohttp web application with route aliases."""
     app = web.Application()
@@ -1117,6 +1152,8 @@ def create_stream_app() -> web.Application:
     app.router.add_get("/api/audit/sync", handle_api_audit_sync)
     app.router.add_post("/api/audit/sync", handle_api_audit_sync)
     app.router.add_route("OPTIONS", "/api/audit/sync", handle_cors_options)
+    app.router.add_post("/api/audit/toggle-complete", handle_api_toggle_complete)
+    app.router.add_route("OPTIONS", "/api/audit/toggle-complete", handle_cors_options)
     app.router.add_post("/api/media/delete", handle_api_delete)
     app.router.add_route("OPTIONS", "/api/media/delete", handle_cors_options)
     app.router.add_post("/api/media/category", handle_api_category)

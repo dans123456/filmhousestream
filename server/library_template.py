@@ -590,6 +590,35 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       background: rgba(239, 68, 68, 0.25);
       border-color: rgba(239, 68, 68, 0.5);
     }
+    .btn-complete-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: 7px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      user-select: none;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: rgba(255, 255, 255, 0.06);
+      color: #94a3b8;
+    }
+    .btn-complete-toggle:hover {
+      background: rgba(255, 255, 255, 0.14);
+      color: #f8fafc;
+      transform: translateY(-1px);
+    }
+    .btn-complete-toggle.is-complete {
+      background: rgba(34, 197, 94, 0.16);
+      color: #86efac;
+      border-color: rgba(34, 197, 94, 0.4);
+    }
+    .btn-complete-toggle.is-complete:hover {
+      background: rgba(34, 197, 94, 0.28);
+      border-color: rgba(34, 197, 94, 0.65);
+    }
     /* Series Folder Card Styling */
     .series-folder-card {
       width: 100%;
@@ -1940,6 +1969,105 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
     }
 
     window.auditData = null;
+    window.completedSeasons = new Set();
+
+    function syncCompletedSeasons() {
+      try {
+        const local = JSON.parse(localStorage.getItem('filmhouse_completed_seasons') || '[]');
+        if (Array.isArray(local)) local.forEach(k => window.completedSeasons.add(k));
+      } catch (e) {}
+      if (window.auditData && window.auditData.completed_seasons) {
+        Object.keys(window.auditData.completed_seasons).forEach(k => {
+          if (window.auditData.completed_seasons[k]) window.completedSeasons.add(k);
+        });
+      }
+    }
+    syncCompletedSeasons();
+
+    async function toggleSeasonComplete(e, canonicalKey, seasonNum) {
+      if (e) e.stopPropagation();
+      const sKey = `${canonicalKey}__s${seasonNum}`;
+      const willBeComplete = !window.completedSeasons.has(sKey);
+      if (willBeComplete) {
+        window.completedSeasons.add(sKey);
+      } else {
+        window.completedSeasons.delete(sKey);
+      }
+      try {
+        localStorage.setItem('filmhouse_completed_seasons', JSON.stringify(Array.from(window.completedSeasons)));
+      } catch (err) {}
+      updateCategoryCounts();
+      renderMedia();
+
+      try {
+        const tgInit = window.Telegram?.WebApp?.initData || '';
+        const urlKey = new URLSearchParams(window.location.search).get('admin_key') || '';
+        const storedKey = sessionStorage.getItem('filmhouse_admin_key') || urlKey;
+        const params = new URLSearchParams();
+        if (tgInit) params.append('tgWebAppData', tgInit);
+        if (storedKey) params.append('admin_key', storedKey);
+        const qs = params.toString();
+        const url = '/api/audit/toggle-complete' + (qs ? '?' + qs : '');
+
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeaders()
+          },
+          body: JSON.stringify({ key: sKey })
+        });
+        const d = await res.json();
+        if (d.success && d.completed_seasons) {
+          if (!window.auditData) window.auditData = {};
+          window.auditData.completed_seasons = d.completed_seasons;
+        }
+      } catch (err) {
+        console.warn('Sync complete status notice:', err);
+      }
+    }
+
+    async function toggleSeriesComplete(e, canonicalKey) {
+      if (e) e.stopPropagation();
+      const willBeComplete = !window.completedSeasons.has(canonicalKey);
+      if (willBeComplete) {
+        window.completedSeasons.add(canonicalKey);
+      } else {
+        window.completedSeasons.delete(canonicalKey);
+      }
+      try {
+        localStorage.setItem('filmhouse_completed_seasons', JSON.stringify(Array.from(window.completedSeasons)));
+      } catch (err) {}
+      updateCategoryCounts();
+      renderMedia();
+
+      try {
+        const tgInit = window.Telegram?.WebApp?.initData || '';
+        const urlKey = new URLSearchParams(window.location.search).get('admin_key') || '';
+        const storedKey = sessionStorage.getItem('filmhouse_admin_key') || urlKey;
+        const params = new URLSearchParams();
+        if (tgInit) params.append('tgWebAppData', tgInit);
+        if (storedKey) params.append('admin_key', storedKey);
+        const qs = params.toString();
+        const url = '/api/audit/toggle-complete' + (qs ? '?' + qs : '');
+
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeaders()
+          },
+          body: JSON.stringify({ key: canonicalKey })
+        });
+        const d = await res.json();
+        if (d.success && d.completed_seasons) {
+          if (!window.auditData) window.auditData = {};
+          window.auditData.completed_seasons = d.completed_seasons;
+        }
+      } catch (err) {
+        console.warn('Sync series complete status notice:', err);
+      }
+    }
 
     async function fetchAuditData() {
       try {
@@ -1957,10 +2085,9 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           const d = await res.json();
           if (d.success && d.audit) {
             window.auditData = d.audit;
+            syncCompletedSeasons();
             updateCategoryCounts();
-            if (currentFilter === 'incomplete' || currentFilter === 'single_ep') {
-              renderMedia();
-            }
+            renderMedia();
           }
         }
       } catch (e) {
@@ -2088,10 +2215,17 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       }
 
       let incompleteCount = 0;
-      if (window.auditData && typeof window.auditData.incomplete_count === 'number') {
-        incompleteCount = window.auditData.incomplete_count;
-      } else if (window.auditData && Array.isArray(window.auditData.incomplete_series)) {
-        incompleteCount = window.auditData.incomplete_series.length;
+      if (window.auditData && Array.isArray(window.auditData.incomplete_series)) {
+        const activeIncompletes = window.auditData.incomplete_series.filter(s => {
+          const k = s.canonical_key;
+          if (window.completedSeasons && window.completedSeasons.has(k)) return false;
+          if (s.seasons_summary && Array.isArray(s.seasons_summary)) {
+            const activeSeasons = s.seasons_summary.filter(sn => !window.completedSeasons.has(`${k}__s${sn.season}`));
+            if (activeSeasons.length === 0) return false;
+          }
+          return true;
+        });
+        incompleteCount = activeIncompletes.length;
       } else {
         seriesEpCounts.forEach((c) => {
           if (c === 1) incompleteCount++;
@@ -2252,6 +2386,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
     }
 
     function findAuditInfo(canonicalKey, title) {
+      if (window.completedSeasons && window.completedSeasons.has(canonicalKey)) return null;
       if (!window.auditData || !window.auditData.incomplete_series) return null;
       const list = window.auditData.incomplete_series;
       if (!Array.isArray(list) || list.length === 0) return null;
@@ -2260,21 +2395,21 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       let found = list.find(s => s.canonical_key === canonicalKey);
       if (found) return found;
 
-      // 2. Base key match (without trailing number/suffix)
-      const baseKey = stripSeriesSuffix(canonicalKey).replace(/_\d+$/, '');
+      // 2. Base key match (only single trailing digit like _1, _2; never _81 or _19)
+      const baseKey = stripSeriesSuffix(canonicalKey).replace(/_[0-9]$/, '');
       found = list.find(s => {
-        const sBase = stripSeriesSuffix(s.canonical_key || '').replace(/_\d+$/, '');
+        const sBase = stripSeriesSuffix(s.canonical_key || '').replace(/_[0-9]$/, '');
         return sBase && sBase === baseKey;
       });
       if (found) return found;
 
-      // 3. Alphanumeric title match
+      // 3. Alphanumeric title match (strict equality to avoid false substring matches like Archive 81 vs Oddity Archive)
       if (title) {
         const normTitle = String(title).toLowerCase().replace(/[^a-z0-9]/g, '');
         found = list.find(s => {
           if (!s.title) return false;
           const sTitle = String(s.title).toLowerCase().replace(/[^a-z0-9]/g, '');
-          return sTitle === normTitle || (normTitle.length >= 5 && (sTitle.startsWith(normTitle) || normTitle.startsWith(sTitle)));
+          return sTitle === normTitle;
         });
         if (found) return found;
       }
@@ -2374,7 +2509,18 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         const isExpanded = isFolderExpanded(group.canonicalKey);
         const totalEpCount = group.allEpisodes.length;
         const catObj = getCategoryObj(group.category);
-        const auditInfo = findAuditInfo(group.canonicalKey, group.title);
+        const isSeriesComplete = Boolean(window.completedSeasons && window.completedSeasons.has(group.canonicalKey));
+        let auditInfo = isSeriesComplete ? null : findAuditInfo(group.canonicalKey, group.title);
+
+        if (auditInfo && auditInfo.seasons_summary) {
+          const activeIncompletes = auditInfo.seasons_summary.filter(s => {
+            const sKey = `${group.canonicalKey}__s${s.season}`;
+            return !(window.completedSeasons && window.completedSeasons.has(sKey));
+          });
+          if (activeIncompletes.length === 0) {
+            auditInfo = null; // All seasons were verified complete!
+          }
+        }
 
         subHtml += `
         <div class="series-folder-card ${auditInfo ? 'folder-incomplete' : ''}" style="${auditInfo ? 'border-color: rgba(239,68,68,0.4);' : ''}">
@@ -2384,7 +2530,10 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
               <div class="folder-info">
                 <div class="folder-name" title="${escapeHtml(group.title)}">
                   ${escapeHtml(group.title)}
-                  ${auditInfo ? `<span style="display:inline-block; margin-left:6px; background:rgba(239,68,68,0.25); border:1px solid rgba(239,68,68,0.45); color:#fca5a5; font-size:0.68rem; font-weight:700; padding:1px 6px; border-radius:6px; vertical-align:middle;">Incomplete</span>` : ''}
+                  ${auditInfo ? 
+                    `<span style="display:inline-block; margin-left:6px; background:rgba(239,68,68,0.25); border:1px solid rgba(239,68,68,0.45); color:#fca5a5; font-size:0.68rem; font-weight:700; padding:1px 6px; border-radius:6px; vertical-align:middle;">Incomplete</span>` : 
+                    `<span style="display:inline-block; margin-left:6px; background:rgba(34,197,94,0.18); border:1px solid rgba(34,197,94,0.4); color:#86efac; font-size:0.68rem; font-weight:700; padding:1px 6px; border-radius:6px; vertical-align:middle;">Complete</span>`
+                  }
                 </div>
                 <div class="folder-meta">
                   <span>${seasonKeys.length === 1 ? `Season ${seasonKeys[0]}` : `${seasonKeys.length} Seasons (S${seasonKeys[0]}–S${seasonKeys[seasonKeys.length - 1]})`}</span> • 
@@ -2396,6 +2545,9 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
               </div>
             </div>
             <div style="display:flex; align-items:center; gap:6px;">
+              <button onclick="toggleSeriesComplete(event, '${group.canonicalKey}')" class="btn-complete-toggle ${isSeriesComplete ? 'is-complete' : ''}" title="${isSeriesComplete ? 'Series marked Complete by Admin. Tap to toggle.' : 'Tap to mark entire Series as Complete'}">
+                ${isSeriesComplete ? '✅ Complete' : 'Mark Complete'}
+              </button>
               <span class="badge-category" onclick="openCategoryModal(event, ${group.firstMid})" title="Change Category">${catObj.icon} ${catObj.tag} ▾</span>
               <span class="badge-quality">${escapeHtml(group.quality)}</span>
               <div class="folder-toggle-btn ${isExpanded ? 'expanded' : ''}">▼</div>
@@ -2415,8 +2567,13 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
                   <div style="display:flex; flex-direction:column; gap:4px;">
                     ${auditInfo.reasons.map(r => `<div>• <strong>${escapeHtml(r)}</strong></div>`).join('')}
                   </div>
-                  <div style="margin-top:6px; font-size:0.75rem; color:#cbd5e1;">
-                    💡 <em>Upload the missing episodes to your Telegram bot or channel — FilmHouse will automatically merge them into this folder!</em>
+                  <div style="margin-top:8px; padding-top:8px; border-top:1px solid rgba(239,68,68,0.25); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px;">
+                    <div style="font-size:0.75rem; color:#cbd5e1;">
+                      💡 <em>Upload the missing episodes, or mark this series complete:</em>
+                    </div>
+                    <button onclick="toggleSeriesComplete(event, '${group.canonicalKey}')" class="btn-complete-toggle is-complete" style="padding:4px 10px; font-size:0.75rem;">
+                      ✅ Mark Entire Series Complete
+                    </button>
                   </div>
                 </div>
               ` : ''}
@@ -2425,7 +2582,8 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
                 const isSeasonOpen = isSeasonExpanded(seasonKey);
                 const seasonEpisodes = (group.seasons[sNum] || []).sort((a, b) => (a.episode || 0) - (b.episode || 0));
                 window.seasonDataMap[seasonKey] = seasonEpisodes;
-                const sAudit = auditInfo && auditInfo.seasons_summary ? auditInfo.seasons_summary.find(s => s.season === sNum) : null;
+                const isSeasonComplete = isSeriesComplete || Boolean(window.completedSeasons && window.completedSeasons.has(seasonKey));
+                const sAudit = (!isSeasonComplete && auditInfo && auditInfo.seasons_summary) ? auditInfo.seasons_summary.find(s => s.season === sNum) : null;
 
                 return `
                 <div class="season-subfolder-box" style="${sAudit && sAudit.expected && seasonEpisodes.length < sAudit.expected ? 'border-color:rgba(239,68,68,0.3);' : ''}">
@@ -2433,13 +2591,22 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
                     <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px; flex:1; min-width:0;">
                       <span style="font-size:1.1rem;">📂</span>
                       <span class="season-subfolder-title">Season ${sNum}</span>
-                      ${sAudit && sAudit.expected ? 
-                        `<span class="season-badge-count" style="background:rgba(239,68,68,0.25); color:#fca5a5; font-weight:700;">⚠️ ${seasonEpisodes.length} / ${sAudit.expected} Episodes</span>
-                         ${sAudit.missing_episodes_str ? `<span style="color:#fca5a5; font-size:0.75rem; font-weight:600;">(Missing: ${escapeHtml(sAudit.missing_episodes_str)})</span>` : ''}` :
-                        `<span class="season-badge-count">${seasonEpisodes.length} Episodes</span>`
+                      ${isSeasonComplete ?
+                        `<span class="season-badge-count" style="background:rgba(34,197,94,0.18); color:#86efac; font-weight:700;">✅ ${seasonEpisodes.length} Episodes (Complete)</span>` :
+                        (sAudit && sAudit.expected ? 
+                          `<span class="season-badge-count" style="background:rgba(239,68,68,0.25); color:#fca5a5; font-weight:700;">⚠️ ${seasonEpisodes.length} / ${sAudit.expected} Episodes</span>
+                           ${sAudit.missing_episodes_str ? `<span style="color:#fca5a5; font-size:0.75rem; font-weight:600;">(Missing: ${escapeHtml(sAudit.missing_episodes_str)})</span>` : ''}` :
+                          `<span class="season-badge-count">${seasonEpisodes.length} Episodes</span>`)
                       }
                     </div>
-                    <div class="folder-toggle-btn ${isSeasonOpen ? 'expanded' : ''}" style="width:28px; height:28px; font-size:0.75rem;">▼</div>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                      <button onclick="toggleSeasonComplete(event, '${group.canonicalKey}', ${sNum})" 
+                              class="btn-complete-toggle ${isSeasonComplete ? 'is-complete' : ''}" 
+                              title="${isSeasonComplete ? 'Season marked Complete. Click to toggle.' : 'Click to mark Season ' + sNum + ' as Complete'}">
+                        ${isSeasonComplete ? '✅ Complete' : 'Mark Complete'}
+                      </button>
+                      <div class="folder-toggle-btn ${isSeasonOpen ? 'expanded' : ''}" style="width:28px; height:28px; font-size:0.75rem;">▼</div>
+                    </div>
                   </div>
 
                   ${isSeasonOpen ? `
@@ -2649,10 +2816,14 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         const incompleteItems = filtered.filter(item => {
           if (!item.is_series || !item.series_title) return false;
           const k = getCanonicalSeriesKey(item.series_title);
+          if (window.completedSeasons && window.completedSeasons.has(k)) return false;
           const auditInfo = findAuditInfo(k, item.series_title);
-          if (auditInfo) return true;
-          if (hasAuditData) {
-            return auditIncompleteKeys.has(k) || auditIncompleteKeys.has(stripSeriesSuffix(k));
+          if (auditInfo) {
+            if (auditInfo.seasons_summary && Array.isArray(auditInfo.seasons_summary)) {
+              const active = auditInfo.seasons_summary.filter(s => !(window.completedSeasons && window.completedSeasons.has(`${k}__s${s.season}`)));
+              if (active.length === 0) return false;
+            }
+            return true;
           }
           return false;
         });

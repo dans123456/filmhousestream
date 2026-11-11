@@ -14,6 +14,7 @@ from bot.storage import get_tracked_files
 logger = logging.getLogger("filmhouse.tmdb_auditor")
 
 AUDIT_CACHE_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "series_audit_cache.json")
+COMPLETED_SEASONS_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "completed_seasons.json")
 _mem_audit_cache: Optional[Dict[str, Any]] = None
 _tv_search_cache: Dict[str, Any] = {}
 _movie_search_cache: Dict[str, Any] = {}
@@ -26,6 +27,61 @@ _audit_status: Dict[str, Any] = {
     "current_title": "",
     "incomplete_count": 0,
 }
+
+
+def get_completed_seasons() -> Dict[str, bool]:
+    """Returns a dict of series/season keys manually marked complete by the admin."""
+    _ensure_data_dir()
+    if os.path.exists(COMPLETED_SEASONS_FILE):
+        try:
+            with open(COMPLETED_SEASONS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+                elif isinstance(data, list):
+                    return {k: True for k in data}
+        except Exception as e:
+            logger.warning(f"Error reading completed_seasons.json: {e}")
+    return {}
+
+
+def toggle_completed_season(key: str, complete: Optional[bool] = None) -> bool:
+    """Toggles or sets the completion status for a series key or season key."""
+    _ensure_data_dir()
+    current = get_completed_seasons()
+    if complete is None:
+        if key in current and current[key]:
+            del current[key]
+            new_state = False
+        else:
+            current[key] = True
+            new_state = True
+    elif complete:
+        current[key] = True
+        new_state = True
+    else:
+        if key in current:
+            del current[key]
+        new_state = False
+
+    try:
+        with open(COMPLETED_SEASONS_FILE, "w", encoding="utf-8") as f:
+            json.dump(current, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Error saving completed_seasons.json: {e}")
+
+    # Invalidate in-memory audit cache so next load gets updated completed list
+    global _mem_audit_cache
+    if _mem_audit_cache and isinstance(_mem_audit_cache, dict):
+        _mem_audit_cache["completed_seasons"] = current
+        if new_state and "__s" not in key:
+            _mem_audit_cache["incomplete_series"] = [
+                s for s in _mem_audit_cache.get("incomplete_series", [])
+                if s.get("canonical_key") != key
+            ]
+            _mem_audit_cache["incomplete_count"] = len(_mem_audit_cache["incomplete_series"])
+
+    return new_state
 
 
 def format_episode_ranges(nums: List[int]) -> str:
@@ -87,6 +143,7 @@ def load_cached_audit() -> Dict[str, Any]:
         }
 
     data["status"] = dict(_audit_status)
+    data["completed_seasons"] = get_completed_seasons()
     return data
 
 
@@ -105,8 +162,6 @@ async def search_tmdb_tv(session: aiohttp.ClientSession, title: str) -> Optional
     """Searches TMDB for a TV series by title. Cached in memory."""
     clean_title = re.sub(r"^(?:the\s+)?(?:end|finale|final)\s+", "", title, flags=re.IGNORECASE).strip()
     clean_title = re.sub(r"[\s\.\-_]+(?:the\s+)?(?:end|finale|final)$", "", clean_title, flags=re.IGNORECASE).strip()
-    # Strip any trailing number: e.g. "Embrace In The Dark Night 1" -> "Embrace In The Dark Night"
-    clean_title = re.sub(r"[\s\.\-_]+\d+$", "", clean_title).strip()
 
     norm_key = re.sub(r"[^a-z0-9]+", " ", clean_title.lower()).strip()
     if not norm_key:
@@ -119,6 +174,7 @@ async def search_tmdb_tv(session: aiohttp.ClientSession, title: str) -> Optional
     if not api_key:
         return None
 
+    # Step 1: Search with full clean_title (e.g. "Archive 81")
     url = f"https://api.themoviedb.org/3/search/tv?api_key={api_key}&query={urllib.parse.quote(clean_title)}"
     try:
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
@@ -126,22 +182,40 @@ async def search_tmdb_tv(session: aiohttp.ClientSession, title: str) -> Optional
                 data = await resp.json()
                 results = data.get("results", [])
                 if results:
+                    for res in results:
+                        res_name = re.sub(r"[^a-z0-9]+", " ", (res.get("name") or "").lower()).strip()
+                        if res_name == norm_key or res_name in norm_key or norm_key in res_name:
+                            _tv_search_cache[norm_key] = res
+                            return res
                     best = results[0]
                     _tv_search_cache[norm_key] = best
                     return best
-                
-                # Fallback: if no results, try without punctuation / simplified
-                simple_title = re.sub(r"['’`]", "", clean_title)
-                if simple_title != clean_title:
-                    fallback_url = f"https://api.themoviedb.org/3/search/tv?api_key={api_key}&query={urllib.parse.quote(simple_title)}"
-                    async with session.get(fallback_url, timeout=aiohttp.ClientTimeout(total=8)) as fb_resp:
-                        if fb_resp.status == 200:
-                            fb_data = await fb_resp.json()
-                            fb_results = fb_data.get("results", [])
-                            if fb_results:
-                                best = fb_results[0]
-                                _tv_search_cache[norm_key] = best
-                                return best
+
+        # Step 2: Fallback without trailing single digit (e.g. "Embrace In The Dark Night 1" -> "Embrace In The Dark Night")
+        stripped_title = re.sub(r"[\s\.\-_]+[0-9]$", "", clean_title).strip()
+        if stripped_title and stripped_title != clean_title:
+            fallback_url = f"https://api.themoviedb.org/3/search/tv?api_key={api_key}&query={urllib.parse.quote(stripped_title)}"
+            async with session.get(fallback_url, timeout=aiohttp.ClientTimeout(total=8)) as fb_resp:
+                if fb_resp.status == 200:
+                    fb_data = await fb_resp.json()
+                    fb_results = fb_data.get("results", [])
+                    if fb_results:
+                        best = fb_results[0]
+                        _tv_search_cache[norm_key] = best
+                        return best
+
+        # Step 3: Fallback without punctuation / simplified
+        simple_title = re.sub(r"['’`]", "", clean_title)
+        if simple_title != clean_title:
+            fallback_url = f"https://api.themoviedb.org/3/search/tv?api_key={api_key}&query={urllib.parse.quote(simple_title)}"
+            async with session.get(fallback_url, timeout=aiohttp.ClientTimeout(total=8)) as fb_resp:
+                if fb_resp.status == 200:
+                    fb_data = await fb_resp.json()
+                    fb_results = fb_data.get("results", [])
+                    if fb_results:
+                        best = fb_results[0]
+                        _tv_search_cache[norm_key] = best
+                        return best
     except Exception as e:
         logger.warning(f"TMDB TV search error for '{clean_title}': {e}")
 
@@ -250,8 +324,8 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
                 clean_title = re.sub(r"^(?:the\s+)?(?:end|finale|final)\s+", "", raw_title, flags=re.IGNORECASE).strip()
                 clean_title = re.sub(r"[\s\.\-_]+(?:the\s+)?(?:end|finale|final)$", "", clean_title, flags=re.IGNORECASE).strip()
                 k = re.sub(r"[^a-z0-9]+", "_", clean_title.lower()).strip("_")
-                # Normalize trailing digits/part numbers from k (e.g. embrace_in_the_dark_night_1 -> embrace_in_the_dark_night)
-                base_k = re.sub(r"_\d+$", "", k)
+                # Normalize trailing digits/part numbers from k (only single digits like _1, _2; preserve _81, _19)
+                base_k = re.sub(r"_[0-9]$", "", k)
                 if base_k and len(base_k) >= 3:
                     k = base_k
                 if not k:
@@ -283,6 +357,7 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
                     series_groups[k]["total_uploaded"] += (end_e_num - e_num + 1) if (end_e_num and end_e_num > e_num) else 1
 
         incomplete_list = []
+        completed_seasons = get_completed_seasons()
         api_key = getattr(config, "TMDB_API_KEY", "")
         total_series = len(series_groups)
         _audit_status["total_count"] = total_series
@@ -297,9 +372,16 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
                 _audit_status["current_title"] = title
                 _audit_status["incomplete_count"] = len(incomplete_list)
 
+                # Skip if entire series was marked complete by admin
+                if k in completed_seasons and completed_seasons[k]:
+                    continue
+
                 # 1. Local Gap Analysis (Works 100% offline without TMDB)
                 missing_gaps = []
                 for s_num, eps in group["seasons"].items():
+                    s_key = f"{k}__s{s_num}"
+                    if s_key in completed_seasons and completed_seasons[s_key]:
+                        continue
                     covered_set = set()
                     for e in eps:
                         ep_start = e["episode"]
@@ -344,6 +426,10 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
 
                 # Check each recorded season against TMDB
                 for s_num, eps in group["seasons"].items():
+                    s_key = f"{k}__s{s_num}"
+                    if s_key in completed_seasons and completed_seasons[s_key]:
+                        continue
+
                     covered_set = set()
                     for e in eps:
                         ep_start = e["episode"]
@@ -421,6 +507,7 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
             "total_series": len(series_groups),
             "incomplete_count": len(incomplete_list),
             "incomplete_series": incomplete_list,
+            "completed_seasons": completed_seasons,
             "last_audit_time": int(time.time()),
             "status": dict(_audit_status),
         }
