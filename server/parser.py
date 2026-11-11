@@ -239,40 +239,62 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             num_m = re.search(r"\b(?:ep|episode|e)?\s*0?(\d{1,3})\b", name, re.IGNORECASE)
             episode = int(num_m.group(1)) if num_m else 999
             working_name = end_lead_match.group(1).replace(".", " ").replace("_", " ").strip()
+            working_name = re.sub(r"[\s\.\-_]+0?(\d{1,3})$", "", working_name).strip()
         elif end_trail_match and not any(ex in lower_name for ex in movie_end_exceptions):
             is_series = True
             season = 1
             num_m = re.search(r"\b(?:ep|episode|e)?\s*0?(\d{1,3})\b", name, re.IGNORECASE)
             episode = int(num_m.group(1)) if num_m else 999
             working_name = end_trail_match.group(1).replace(".", " ").replace("_", " ").strip()
+            working_name = re.sub(r"[\s\.\-_]+0?(\d{1,3})$", "", working_name).strip()
         else:
-            # Universal episode detector: allows quality or format tags after the number (e.g. Flex X Cop 01 720p)
-            bare_ep_match = re.search(r"^(.*?)(?:[\s\.\-_]+(?:ep|episode|part|pt|e)?[\s\.\-_]*)(\d{1,3})(?:[\s\.\-_]+(?:1080p|720p|480p|4k|2160p|bluray|webrip|web-dl|web|hdrip|hd|hevc|x264|x265|aac|ac3|hindi|eng|dual|filmhouse|filmh|\b).*)?$", name, re.IGNORECASE)
-            if bare_ep_match:
-                pot_title = bare_ep_match.group(1).replace(".", " ").replace("_", " ").strip()
-                raw_num_str = bare_ep_match.group(2)
-                pot_num = int(raw_num_str)
-                lower_pot = pot_title.lower()
-                has_ep_keyword = bool(re.search(r"[\s\.\-_]+(?:ep|episode|e)[\s\.\-_]*\d{1,3}", name, re.IGNORECASE))
-                has_leading_zero = bool(raw_num_str.startswith("0") and len(raw_num_str) >= 2)
-                is_known_series = any(k in lower_pot for k in ("flex", "bean", "koleoso", "yoruba", "fixie", "veggie", "noobee"))
-                is_known_movie = any(k in lower_pot for k in ("return of beyonce", "iron man", "spider-man", "deadpool", "avatar", "moana", "frozen", "top gun", "gladiator", "shrek", "toy story", "taken", "john wick", "quiet place", "despicable me", "inside out", "dune", "bad boys", "godzilla", "transformers", "jurassic", "mission impossible", "fast", "furious"))
+            # Check leading episode number: e.g. "08 A Killer Paradox.mkv", "08.A.Killer.Paradox.mkv", "01 My Demon.mkv", "01 Chucky.mkv"
+            lead_ep_match = re.search(r"^(?:(?:ep|episode|e)[\s\.\-_]*)?(\d{1,3})[\s\.\-_]+([a-zA-Z].+)$", name, re.IGNORECASE)
+            lead_handled = False
+            if lead_ep_match:
+                lead_raw_num = lead_ep_match.group(1)
+                lead_pot_title = lead_ep_match.group(2).replace(".", " ").replace("_", " ").strip()
+                lead_low_title = lead_pot_title.lower()
+                lead_has_zero = lead_raw_num.startswith("0") and len(lead_raw_num) >= 2
+                lead_has_prefix = bool(re.match(r"^(?:ep|episode|e)[\s\.\-_]*\d", name, re.IGNORECASE))
+                lead_is_known_series = any(k in lead_low_title for k in ("killer paradox", "my demon", "chucky", "demon", "squid game", "queen of tears", "flex", "bean", "koleoso", "yoruba", "fixie", "veggie", "noobee"))
+                lead_is_known_movie = any(k in lead_low_title for k in ("cloverfield lane", "years a slave", "jump street", "first dates", "meters down", "hours", "monkeys", "rounds", "underground", "mile", "guns"))
 
-                # Bare single digits (1..9) without 'ep' or leading zero are MOVIE SEQUELS (e.g. Return of Beyonce 1, Iron Man 2)
-                if has_ep_keyword or is_known_series or has_leading_zero or (len(raw_num_str) >= 2 and 10 <= pot_num <= 300 and not (1920 <= pot_num <= 2030) and not is_known_movie):
+                if (lead_has_zero or lead_has_prefix or lead_is_known_series) and not lead_is_known_movie:
                     is_series = True
                     season = 1
-                    episode = pot_num
-                    working_name = pot_title
-            elif any(k in lower_name for k in ("flex x cop", "flexxcop", "mr bean", "mr. bean")):
-                is_series = True
-                season = 1
-                num_match = re.search(r"\b(\d{1,3})\b", name)
-                episode = int(num_match.group(1)) if num_match else 1
-                if "flex" in lower_name:
-                    working_name = "Flex X Cop"
-                elif "bean" in lower_name:
-                    working_name = "Mr. Bean"
+                    episode = int(lead_raw_num)
+                    working_name = lead_pot_title
+                    lead_handled = True
+
+            if not lead_handled:
+                # Universal episode detector: allows quality or format tags after the number (e.g. Flex X Cop 01 720p)
+                bare_ep_match = re.search(r"^(.*?)(?:[\s\.\-_]+(?:ep|episode|part|pt|e)?[\s\.\-_]*)(\d{1,3})(?:[\s\.\-_]+(?:1080p|720p|480p|4k|2160p|bluray|webrip|web-dl|web|hdrip|hd|hevc|x264|x265|aac|ac3|hindi|eng|dual|filmhouse|filmh|\b).*)?$", name, re.IGNORECASE)
+                if bare_ep_match:
+                    pot_title = bare_ep_match.group(1).replace(".", " ").replace("_", " ").strip()
+                    raw_num_str = bare_ep_match.group(2)
+                    pot_num = int(raw_num_str)
+                    lower_pot = pot_title.lower()
+                    has_ep_keyword = bool(re.search(r"[\s\.\-_]+(?:ep|episode|e)[\s\.\-_]*\d{1,3}", name, re.IGNORECASE))
+                    has_leading_zero = bool(raw_num_str.startswith("0") and len(raw_num_str) >= 2)
+                    is_known_series = any(k in lower_pot for k in ("flex", "bean", "koleoso", "yoruba", "fixie", "veggie", "noobee", "chucky", "killer paradox", "my demon"))
+                    is_known_movie = any(k in lower_pot for k in ("return of beyonce", "iron man", "spider-man", "deadpool", "avatar", "moana", "frozen", "top gun", "gladiator", "shrek", "toy story", "taken", "john wick", "quiet place", "despicable me", "inside out", "dune", "bad boys", "godzilla", "transformers", "jurassic", "mission impossible", "fast", "furious"))
+
+                    # Bare single digits (1..9) without 'ep' or leading zero are MOVIE SEQUELS (e.g. Return of Beyonce 1, Iron Man 2)
+                    if has_ep_keyword or is_known_series or has_leading_zero or (len(raw_num_str) >= 2 and 10 <= pot_num <= 300 and not (1920 <= pot_num <= 2030) and not is_known_movie):
+                        is_series = True
+                        season = 1
+                        episode = pot_num
+                        working_name = pot_title
+                elif any(k in lower_name for k in ("flex x cop", "flexxcop", "mr bean", "mr. bean")):
+                    is_series = True
+                    season = 1
+                    num_match = re.search(r"\b(\d{1,3})\b", name)
+                    episode = int(num_match.group(1)) if num_match else 1
+                    if "flex" in lower_name:
+                        working_name = "Flex X Cop"
+                    elif "bean" in lower_name:
+                        working_name = "Mr. Bean"
 
     # 3. Detect Year
     year = None
@@ -465,6 +487,31 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
         elif norm_t.startswith("noobees"):
             clean_title = "Noobees"
             is_series = True
+        elif "chucky" in norm_t:
+            clean_title = "Chucky"
+            is_series = True
+            if not season:
+                s_m = re.search(r"\b[sS](\d{1,2})\b", raw_filename)
+                season = int(s_m.group(1)) if s_m else 1
+            if not episode:
+                m = re.search(r"\b0?(\d{1,3})\b", raw_filename)
+                episode = int(m.group(1)) if m else 1
+        elif "killer paradox" in norm_t:
+            clean_title = "A Killer Paradox"
+            is_series = True
+            if not season:
+                season = 1
+            if not episode or episode == 999:
+                m = re.search(r"\b0?(\d{1,3})\b", raw_filename)
+                episode = int(m.group(1)) if m else 1
+        elif "my demon" in norm_t or "mydemon" in norm_t:
+            clean_title = "My Demon"
+            is_series = True
+            if not season:
+                season = 1
+            if not episode or episode == 999:
+                m = re.search(r"\b0?(\d{1,3})\b", raw_filename)
+                episode = int(m.group(1)) if m else 1
 
     # 5. Build Human-Readable Display Name
     if is_series:
@@ -574,7 +621,7 @@ def detect_category(raw_filename: str, clean_title: str, is_series: bool) -> str
         r"\b(the glory|vincenzo|itaewon class|descendants of the sun|goblin|business proposal)\b",
         r"\b(twinkling watermelon|marry my husband|lovely runner|hotel del luna|strong girl)\b",
         r"\b(weightlifting fairy|true beauty|extraordinary attorney woo|sweet home|moving|pyramid game)\b",
-        r"\b(a good day to be a dog|hidden love|mr queen|mr. queen|flex x cop|flexxcop)\b",
+        r"\b(a good day to be a dog|hidden love|mr queen|mr. queen|flex x cop|flexxcop|a killer paradox|killer paradox|my demon)\b",
     ]
     for pat in kdrama_patterns:
         if re.search(pat, text):

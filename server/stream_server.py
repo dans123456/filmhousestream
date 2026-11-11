@@ -790,6 +790,43 @@ def build_api_media_payload() -> dict:
                         parsed["episode"] = 0
                         parsed["episode_title"] = "Special"
 
+                if "chucky" in lower_fn or "chucky" in lower_title:
+                    parsed["is_series"] = True
+                    parsed["title"] = "Chucky"
+                    parsed["category"] = "series"
+                    if not parsed.get("season"):
+                        s_m = re.search(r"\b[sS](\d{1,2})\b", fn)
+                        parsed["season"] = int(s_m.group(1)) if s_m else 1
+                    if not parsed.get("episode") or parsed.get("episode") == 999:
+                        m = re.search(r"\b0?(\d{1,3})\b", fn)
+                        parsed["episode"] = int(m.group(1)) if m else 1
+
+                if "killer paradox" in lower_fn or "killer paradox" in lower_title:
+                    parsed["is_series"] = True
+                    parsed["title"] = "A Killer Paradox"
+                    parsed["category"] = "kdrama"
+                    if not parsed.get("season"):
+                        parsed["season"] = 1
+                    if not parsed.get("episode") or parsed.get("episode") == 999:
+                        m = re.search(r"\b0?(\d{1,3})\b", fn)
+                        parsed["episode"] = int(m.group(1)) if m else 1
+
+                if "my demon" in lower_fn or "my demon" in lower_title or "mydemon" in lower_fn:
+                    parsed["is_series"] = True
+                    parsed["title"] = "My Demon"
+                    parsed["category"] = "kdrama"
+                    if not parsed.get("season"):
+                        parsed["season"] = 1
+                    if not parsed.get("episode") or parsed.get("episode") == 999:
+                        m = re.search(r"\b0?(\d{1,3})\b", fn)
+                        parsed["episode"] = int(m.group(1)) if m else 1
+
+                # Generic leading episode healing (e.g. 08 A Killer Paradox, 01 My Demon)
+                if not parsed.get("is_series") and re.search(r"^(?:(?:ep|episode|e)[\s\.\-_]*)?(0[1-9]|[1-9]\d?)[\s\.\-_]+[a-zA-Z]", fn, re.IGNORECASE):
+                    fresh_p = parse_filename(fn)
+                    if fresh_p.get("is_series"):
+                        parsed.update(fresh_p)
+
             # Auto-heal false TV series from older parser (e.g. Return of Beyonce 1, Iron Man 2)
             if parsed.get("is_series"):
                 has_explicit_ep = bool(re.search(r"\b(?:s\d{1,2}|e\d{1,3}|ep|episode|s\d{1,2}e\d{1,3})\b", fn, re.IGNORECASE))
@@ -873,6 +910,11 @@ def build_api_media_payload() -> dict:
 
 def prewarm_media_cache():
     """Builds the in-memory media payload cache at startup so the very first request is served in <1ms."""
+    try:
+        from bot.storage import heal_stored_series_ledger
+        heal_stored_series_ledger()
+    except Exception as e:
+        logger.warning(f"Notice during ledger healing: {e}")
     try:
         logger.info("Pre-warming media library cache for 6,400+ titles...")
         payload = build_api_media_payload()

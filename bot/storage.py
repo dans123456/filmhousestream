@@ -136,3 +136,46 @@ def update_tracked_metadata(message_id: int, updates: dict):
             json.dump(records, f, indent=2, ensure_ascii=False)
     except Exception as e:
         logger.error(f"Failed to update tracked media metadata: {e}")
+
+
+def heal_stored_series_ledger():
+    """Scans tracked_media.json and permanently heals misclassified series (Chucky, My Demon, A Killer Paradox, leading episode numbers)."""
+    _ensure_storage()
+    try:
+        import re
+        from server.parser import parse_filename, build_golden_filename
+        with open(STORAGE_FILE, "r", encoding="utf-8") as f:
+            records = json.load(f)
+
+        changed = False
+        for r in records:
+            fn = r.get("file_name") or r.get("original_filename") or ""
+            parsed = r.get("parsed") or {}
+            lower_fn = fn.lower()
+            lower_title = str(parsed.get("title") or "").lower()
+
+            needs_heal = (
+                "chucky" in lower_fn or "chucky" in lower_title or
+                "killer paradox" in lower_fn or "killer paradox" in lower_title or
+                "my demon" in lower_fn or "my demon" in lower_title or "mydemon" in lower_fn or
+                (not parsed.get("is_series") and re.search(r"^(?:(?:ep|episode|e)[\s\.\-_]*)?(0[1-9]|[1-9]\d?)[\s\.\-_]+[a-zA-Z]", fn, re.IGNORECASE))
+            )
+
+            if needs_heal:
+                fresh = parse_filename(fn)
+                if fresh.get("is_series"):
+                    parsed.update(fresh)
+                    r["parsed"] = parsed
+                    r["is_series"] = True
+                    r["category"] = fresh.get("category") or r.get("category") or "series"
+                    golden = build_golden_filename(parsed, fn)
+                    r["file_name"] = golden
+                    changed = True
+
+        if changed:
+            with open(STORAGE_FILE, "w", encoding="utf-8") as f:
+                json.dump(records, f, indent=2, ensure_ascii=False)
+            logger.info("Successfully healed tracked_media.json records on disk.")
+    except Exception as e:
+        logger.warning(f"Notice during heal_stored_series_ledger: {e}")
+
