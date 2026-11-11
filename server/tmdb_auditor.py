@@ -16,6 +16,7 @@ logger = logging.getLogger("filmhouse.tmdb_auditor")
 AUDIT_CACHE_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "series_audit_cache.json")
 _mem_audit_cache: Optional[Dict[str, Any]] = None
 _tv_search_cache: Dict[str, Any] = {}
+_movie_search_cache: Dict[str, Any] = {}
 _tv_details_cache: Dict[int, Any] = {}
 _is_auditing = False
 _audit_status: Dict[str, Any] = {
@@ -148,6 +149,52 @@ async def search_tmdb_tv(session: aiohttp.ClientSession, title: str) -> Optional
     return None
 
 
+async def search_tmdb_movie(session: aiohttp.ClientSession, title: str) -> Optional[Dict[str, Any]]:
+    """Searches TMDB for a movie by title. Cached in memory."""
+    clean_title = re.sub(r"^(?:the\s+)?(?:end|finale|final)\s+", "", title, flags=re.IGNORECASE).strip()
+    clean_title = re.sub(r"[\s\.\-_]+(?:the\s+)?(?:end|finale|final)$", "", clean_title, flags=re.IGNORECASE).strip()
+    clean_title = re.sub(r"[\s\.\-_]+\d+$", "", clean_title).strip()
+
+    norm_key = re.sub(r"[^a-z0-9]+", " ", clean_title.lower()).strip()
+    if not norm_key:
+        return None
+
+    if norm_key in _movie_search_cache:
+        return _movie_search_cache[norm_key]
+
+    api_key = getattr(config, "TMDB_API_KEY", "")
+    if not api_key:
+        return None
+
+    url = f"https://api.themoviedb.org/3/search/movie?api_key={api_key}&query={urllib.parse.quote(clean_title)}"
+    try:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                results = data.get("results", [])
+                if results:
+                    best = results[0]
+                    _movie_search_cache[norm_key] = best
+                    return best
+
+                simple_title = re.sub(r"['’`]", "", clean_title)
+                if simple_title != clean_title:
+                    fallback_url = f"https://api.themoviedb.org/3/search/movie?api_key={api_key}&query={urllib.parse.quote(simple_title)}"
+                    async with session.get(fallback_url, timeout=aiohttp.ClientTimeout(total=8)) as fb_resp:
+                        if fb_resp.status == 200:
+                            fb_data = await fb_resp.json()
+                            fb_results = fb_data.get("results", [])
+                            if fb_results:
+                                best = fb_results[0]
+                                _movie_search_cache[norm_key] = best
+                                return best
+    except Exception as e:
+        logger.warning(f"TMDB Movie search error for '{clean_title}': {e}")
+
+    _movie_search_cache[norm_key] = None
+    return None
+
+
 async def get_tmdb_tv_details(session: aiohttp.ClientSession, tv_id: int) -> Optional[Dict[str, Any]]:
     """Fetches full TV show details including season episode counts. Cached in memory."""
     if tv_id in _tv_details_cache:
@@ -230,7 +277,7 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
                         "episode": e_num,
                         "end_episode": end_e_num,
                         "message_id": it.get("message_id"),
-                        "file_name": it.get("original_file_name") or it.get("file_name"),
+                        "file_name": it.get("file_name") or it.get("original_file_name"),
                         "quality": it.get("quality", "HD"),
                     })
                     series_groups[k]["total_uploaded"] += (end_e_num - e_num + 1) if (end_e_num and end_e_num > e_num) else 1
@@ -326,16 +373,26 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
                                 "missing_tail": [e for e in missing_all if e > max_uploaded_ep],
                             })
                     elif total_uploaded == 1:
-                        # Only 1 episode in entire series
-                        is_incomplete = True
-                        reasons.append(f"Season {s_num}: Only 1 episode uploaded (Episode {max_uploaded_ep}).")
-                        status_summary.append({
-                            "season": s_num,
-                            "uploaded": 1,
-                            "expected": None,
-                            "missing_episodes": [],
-                            "missing_episodes_str": "",
-                        })
+                        # Check if TMDB has a movie or if no TV series was found on TMDB
+                        is_movie = False
+                        if api_key and force_tmdb:
+                            movie_res = await search_tmdb_movie(session, title)
+                            if movie_res:
+                                is_movie = True
+
+                        # If it's a confirmed movie or TMDB found no TV show, DO NOT classify as incomplete TV series!
+                        if is_movie or not tmdb_res:
+                            continue
+                        else:
+                            is_incomplete = True
+                            reasons.append(f"Season {s_num}: Only 1 episode uploaded (Episode {max_uploaded_ep}).")
+                            status_summary.append({
+                                "season": s_num,
+                                "uploaded": 1,
+                                "expected": None,
+                                "missing_episodes": [],
+                                "missing_episodes_str": "",
+                            })
 
                 # Check if internal gaps were found
                 if missing_gaps:

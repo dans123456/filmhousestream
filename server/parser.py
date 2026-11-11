@@ -250,11 +250,16 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             bare_ep_match = re.search(r"^(.*?)(?:[\s\.\-_]+(?:ep|episode|part|pt|e)?[\s\.\-_]*)(\d{1,3})(?:[\s\.\-_]+(?:1080p|720p|480p|4k|2160p|bluray|webrip|web-dl|web|hdrip|hd|hevc|x264|x265|aac|ac3|hindi|eng|dual|filmhouse|filmh|\b).*)?$", name, re.IGNORECASE)
             if bare_ep_match:
                 pot_title = bare_ep_match.group(1).replace(".", " ").replace("_", " ").strip()
-                pot_num = int(bare_ep_match.group(2))
+                raw_num_str = bare_ep_match.group(2)
+                pot_num = int(raw_num_str)
                 lower_pot = pot_title.lower()
-                has_ep_keyword = bool(re.search(r"[\s\.\-_]+(?:ep|episode|part|pt|e)[\s\.\-_]*\d{1,3}", name, re.IGNORECASE))
+                has_ep_keyword = bool(re.search(r"[\s\.\-_]+(?:ep|episode|e)[\s\.\-_]*\d{1,3}", name, re.IGNORECASE))
+                has_leading_zero = bool(raw_num_str.startswith("0") and len(raw_num_str) >= 2)
                 is_known_series = any(k in lower_pot for k in ("flex", "bean", "koleoso", "yoruba", "fixie", "veggie", "noobee"))
-                if has_ep_keyword or is_known_series or (len(pot_title) >= 2 and 1 <= pot_num <= 300 and not (1920 <= pot_num <= 2030)):
+                is_known_movie = any(k in lower_pot for k in ("return of beyonce", "iron man", "spider-man", "deadpool", "avatar", "moana", "frozen", "top gun", "gladiator", "shrek", "toy story", "taken", "john wick", "quiet place", "despicable me", "inside out", "dune", "bad boys", "godzilla", "transformers", "jurassic", "mission impossible", "fast", "furious"))
+
+                # Bare single digits (1..9) without 'ep' or leading zero are MOVIE SEQUELS (e.g. Return of Beyonce 1, Iron Man 2)
+                if has_ep_keyword or is_known_series or has_leading_zero or (len(raw_num_str) >= 2 and 10 <= pot_num <= 300 and not (1920 <= pot_num <= 2030) and not is_known_movie):
                     is_series = True
                     season = 1
                     episode = pot_num
@@ -508,7 +513,11 @@ def build_golden_filename(parsed: dict, original_filename: str) -> str:
     if parsed.get("is_series"):
         s_num = parsed.get("season") or 1
         e_num = parsed.get("episode") or 1
-        s_tag = f"S{s_num:02d}E{e_num:02d}"
+        end_e_num = parsed.get("end_episode")
+        if end_e_num and int(end_e_num) > int(e_num):
+            s_tag = f"S{s_num:02d}E{e_num:02d}-E{int(end_e_num):02d}"
+        else:
+            s_tag = f"S{s_num:02d}E{e_num:02d}"
         q_tag = f".{parsed['quality']}" if parsed.get("quality") else ""
         return f"{dots_title}.{s_tag}{q_tag}{ext}"
     else:
@@ -565,6 +574,7 @@ def detect_category(raw_filename: str, clean_title: str, is_series: bool) -> str
         r"\b(accra medic|a tribe called judah|jagun jagun|anikulapo|king of boys|the black book|aiyetoro)\b",
         r"\b(blood sisters|shanty town|far from home|brotherhood|gangs of lagos|lisabi|breath of life)\b",
         r"\b(olishe|afamefuna|house of ga'a|house of gaa|battle on buka street|wedding party)\b",
+        r"\b(return of beyonce|the return of beyonce)\b",
         r"\b(accra|ghanaian|nigerian)\b",
     ]
     for pat in african_patterns:

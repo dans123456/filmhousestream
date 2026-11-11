@@ -2616,8 +2616,9 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           }
         });
 
+        const hasAuditData = Boolean(window.auditData && Array.isArray(window.auditData.incomplete_series));
         let auditIncompleteKeys = new Set();
-        if (window.auditData && window.auditData.incomplete_series) {
+        if (hasAuditData) {
           window.auditData.incomplete_series.forEach(s => auditIncompleteKeys.add(s.canonical_key));
         }
 
@@ -2626,10 +2627,10 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           const k = getCanonicalSeriesKey(item.series_title);
           const auditInfo = findAuditInfo(k, item.series_title);
           if (auditInfo) return true;
-          if (auditIncompleteKeys.size > 0) {
+          if (hasAuditData) {
             return auditIncompleteKeys.has(k) || auditIncompleteKeys.has(stripSeriesSuffix(k));
           }
-          return seriesCountMap.get(k) === 1;
+          return false;
         });
 
         html += `

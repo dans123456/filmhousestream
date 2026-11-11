@@ -28,7 +28,8 @@ def record_indexed_file(message_id: int, file_name: str, parsed: dict = None, fi
     except Exception:
         records = []
 
-    golden = (parsed and parsed.get("golden_name")) or file_name
+    from server.parser import build_golden_filename
+    golden = (parsed and parsed.get("golden_name")) or (parsed and build_golden_filename(parsed, file_name)) or file_name
     category = (parsed and parsed.get("category")) or "movies"
 
     records.append({

@@ -771,6 +771,18 @@ def build_api_media_payload() -> dict:
                         parsed["episode"] = 0
                         parsed["episode_title"] = "Special"
 
+            # Auto-heal false TV series from older parser (e.g. Return of Beyonce 1, Iron Man 2)
+            fresh_p = parse_filename(fn)
+            if not fresh_p.get("is_series") and parsed.get("is_series"):
+                has_explicit_ep = bool(re.search(r"\b(?:s\d{1,2}|e\d{1,3}|ep|episode|s\d{1,2}e\d{1,3})\b", fn, re.IGNORECASE))
+                has_zero_pad = bool(re.search(r"[\s\.\-_]0\d{1,2}\b", fn))
+                if not has_explicit_ep and not has_zero_pad:
+                    parsed["is_series"] = False
+                    parsed["title"] = fresh_p.get("title") or parsed.get("title")
+                    parsed["season"] = None
+                    parsed["episode"] = None
+                    parsed["category"] = fresh_p.get("category") or ("african" if "beyonce" in lower_fn else "movies")
+
             title_clean = str(parsed.get("title") or fn or "Unknown")
             if parsed.get("is_series"):
                 title_clean = re.sub(r"^(?:the\s+)?(?:end|finale|final)\s+", "", title_clean, flags=re.IGNORECASE).strip()
@@ -811,7 +823,11 @@ def build_api_media_payload() -> dict:
             elif not parsed.get("is_series") and category == "series":
                 category = "movies"
 
-            golden_fn = parsed.get("golden_name") or fn
+            from server.parser import build_golden_filename
+            golden_fn = parsed.get("golden_name")
+            if not golden_fn or " " in golden_fn or "_" in golden_fn or "filmhouse" in golden_fn.lower():
+                golden_fn = build_golden_filename(parsed, fn)
+            parsed["golden_name"] = golden_fn
 
             items.append({
                 "message_id": mid,
