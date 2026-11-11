@@ -1,6 +1,8 @@
 import re
 import math
 import time
+import gzip
+import json
 import asyncio
 import logging
 from aiohttp import web
@@ -659,13 +661,29 @@ async def handle_cors_options(request: web.Request) -> web.Response:
 _api_media_cache = None
 _api_media_cache_time = 0.0
 _api_media_cache_ttl = 300.0  # 5-minute cache TTL (instantly invalidated on any modification)
+_api_media_cache_json = b""
+_api_media_cache_gzip = b""
 _parsed_filename_cache = {}
 
 
+def update_media_cache_buffers(payload: dict):
+    global _api_media_cache, _api_media_cache_time, _api_media_cache_json, _api_media_cache_gzip
+    _api_media_cache = payload
+    _api_media_cache_time = time.time()
+    try:
+        raw_json = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        _api_media_cache_json = raw_json
+        _api_media_cache_gzip = gzip.compress(raw_json, compresslevel=6)
+    except Exception as e:
+        logger.warning(f"Error compressing media cache buffers: {e}")
+
+
 def invalidate_media_cache():
-    global _api_media_cache, _api_media_cache_time
+    global _api_media_cache, _api_media_cache_time, _api_media_cache_json, _api_media_cache_gzip
     _api_media_cache = None
     _api_media_cache_time = 0.0
+    _api_media_cache_json = b""
+    _api_media_cache_gzip = b""
 
 
 def build_api_media_payload() -> dict:
@@ -673,8 +691,6 @@ def build_api_media_payload() -> dict:
     global _parsed_filename_cache
     records = get_tracked_files()
     items = []
-    base_player = config.BLOGGER_URL.rstrip("/")
-    sep = "&" if "?" in base_player else "?"
 
     for r in records:
         try:
@@ -810,12 +826,6 @@ def build_api_media_payload() -> dict:
             token = generate_stream_token(mid)
             stream_url = f"{config.SERVER_URL}/dl/{token}"
             watch_url = f"{config.SERVER_URL}/watch/{token}"
-            encoded_stream = urllib.parse.quote(stream_url, safe="")
-            encoded_title = urllib.parse.quote(title_clean, safe="")
-            if base_player.endswith(".html"):
-                blogger_url = f"{base_player}{sep}watch={encoded_stream}&title={encoded_title}"
-            else:
-                blogger_url = f"{base_player}/{sep}watch={encoded_stream}&title={encoded_title}"
 
             category = r.get("category")
             if not category or (category == "african" and parsed.get("category") != "african"):
@@ -848,7 +858,6 @@ def build_api_media_payload() -> dict:
                 "file_size_str": r.get("file_size_str", ""),
                 "stream_url": stream_url,
                 "watch_url": watch_url,
-                "blogger_url": blogger_url,
                 "created_at": r.get("created_at", 0),
             })
         except Exception as item_err:
@@ -864,13 +873,11 @@ def build_api_media_payload() -> dict:
 
 def prewarm_media_cache():
     """Builds the in-memory media payload cache at startup so the very first request is served in <1ms."""
-    global _api_media_cache, _api_media_cache_time
     try:
         logger.info("Pre-warming media library cache for 6,400+ titles...")
         payload = build_api_media_payload()
-        _api_media_cache = payload
-        _api_media_cache_time = time.time()
-        logger.info(f"Media library cache pre-warmed: {len(payload.get('items', []))} titles loaded into RAM.")
+        update_media_cache_buffers(payload)
+        logger.info(f"Media library cache pre-warmed: {len(payload.get('items', []))} titles loaded into RAM (Gzip size: {len(_api_media_cache_gzip) // 1024} KB).")
     except Exception as e:
         logger.warning(f"Notice during media cache pre-warming: {e}")
 
@@ -889,37 +896,41 @@ async def handle_api_media(request: web.Request) -> web.Response:
     is_admin = verify_admin_access(request)
 
     # 3. Check fast in-memory cache
-    global _api_media_cache, _api_media_cache_time
+    global _api_media_cache, _api_media_cache_time, _api_media_cache_json, _api_media_cache_gzip
     now = time.time()
-    if _api_media_cache is not None and (now - _api_media_cache_time) < _api_media_cache_ttl:
+    if _api_media_cache is None or (now - _api_media_cache_time) >= _api_media_cache_ttl:
+        try:
+            payload = build_api_media_payload()
+            update_media_cache_buffers(payload)
+        except Exception as e:
+            logger.error(f"Error rebuilding media cache: {e}", exc_info=True)
+            if _api_media_cache is None:
+                return web.json_response({"success": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
+
+    accept_encoding = request.headers.get("Accept-Encoding", "").lower()
+    headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
+        "Cache-Control": "no-cache",
+    }
+
+    if "gzip" in accept_encoding and _api_media_cache_gzip:
+        headers["Content-Encoding"] = "gzip"
+        return web.Response(
+            body=_api_media_cache_gzip,
+            content_type="application/json",
+            headers=headers
+        )
+    elif _api_media_cache_json:
+        return web.Response(
+            body=_api_media_cache_json,
+            content_type="application/json",
+            headers=headers
+        )
+    else:
         resp_data = dict(_api_media_cache)
         resp_data["is_admin"] = is_admin
-        return web.json_response(resp_data, headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
-        })
-
-    try:
-        payload = build_api_media_payload()
-        _api_media_cache = payload
-        _api_media_cache_time = now
-
-        resp_data = dict(payload)
-        resp_data["is_admin"] = is_admin
-
-        return web.json_response(resp_data, headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
-        })
-    except Exception as e:
-        logger.error(f"Error in handle_api_media: {e}", exc_info=True)
-        return web.json_response({
-            "success": False,
-            "error": str(e)
-        }, status=500, headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
-        })
+        return web.json_response(resp_data, headers=headers)
 
 
 async def handle_api_delete(request: web.Request) -> web.Response:

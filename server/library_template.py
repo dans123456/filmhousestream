@@ -7,8 +7,8 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <!-- Monetag Telegram Mini App Rewarded Ad SDK -->
-  <script src="https://libtl.com/sdk.js" data-zone="12146431" data-sdk="show_12146431"></script>
+  <!-- Monetag Telegram Mini App Rewarded Ad SDK (Loaded asynchronously so it never blocks page load) -->
+  <script async src="https://libtl.com/sdk.js" data-zone="12146431" data-sdk="show_12146431"></script>
   <style>
     *, *::before, *::after {
       margin: 0;
@@ -2442,9 +2442,6 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
                           <div class="card-actions" style="margin-top:2px;">
                             <div class="action-row">
                               <a href="${ep.watch_url}" onclick="openWithAd(event, '${ep.watch_url}')" class="btn btn-watch" style="min-height:32px; font-size:0.75rem;">▶ Play</a>
-                              <a href="${ep.blogger_url}" onclick="openWithAd(event, '${ep.blogger_url}')" class="btn btn-blogger" style="min-height:32px; font-size:0.75rem;">🍿 Player</a>
-                            </div>
-                            <div class="action-row">
                               <button onclick="copyToClipboard('${ep.stream_url}')" class="btn btn-copy" style="min-height:32px; font-size:0.75rem;">📋 Link</button>
                               <button onclick="openEditModal(event, ${ep.message_id})" class="btn btn-edit" style="min-height:32px; width:38px;" title="Edit Info">✏️</button>
                               <button onclick="deleteMedia(${ep.message_id})" class="btn btn-del" style="min-height:32px; width:38px;" title="Delete">🗑️</button>
@@ -2500,12 +2497,11 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
             <div class="card-actions">
               <div class="action-row">
                 <a href="${item.watch_url}" onclick="openWithAd(event, '${item.watch_url}')" class="btn btn-watch">▶ Play Stream</a>
-                <a href="${item.blogger_url}" onclick="openWithAd(event, '${item.blogger_url}')" class="btn btn-blogger">🍿 Player</a>
+                <button onclick="copyToClipboard('${item.stream_url}')" class="btn btn-copy">📋 Copy Link</button>
               </div>
               <div class="action-row">
-                <button onclick="copyToClipboard('${item.stream_url}')" class="btn btn-copy">📋 Copy Stream Link</button>
-                <button onclick="openEditModal(event, ${item.message_id})" class="btn btn-edit" title="Edit Info">✏️</button>
-                <button onclick="deleteMedia(${item.message_id})" class="btn btn-del" title="Delete from Storage">🗑️</button>
+                <button onclick="openEditModal(event, ${item.message_id})" class="btn btn-edit" title="Edit Info">✏️ Edit</button>
+                <button onclick="deleteMedia(${item.message_id})" class="btn btn-del" title="Delete from Storage">🗑️ Delete</button>
               </div>
             </div>
           </div>
@@ -2542,7 +2538,6 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
                   </div>
                   <div class="quality-version-actions">
                     <a href="${v.watch_url}" onclick="openWithAd(event, '${v.watch_url}')" class="btn btn-watch" style="min-height:30px; font-size:0.75rem; padding:4px 8px;">▶ Play</a>
-                    <a href="${v.blogger_url}" onclick="openWithAd(event, '${v.blogger_url}')" class="btn btn-blogger" style="min-height:30px; font-size:0.75rem; padding:4px 8px;">🍿 Player</a>
                     <button onclick="copyToClipboard('${v.stream_url}')" class="btn btn-copy" style="min-height:30px; font-size:0.75rem; padding:4px 8px;">📋 Link</button>
                     <button onclick="openEditModal(event, ${v.message_id})" class="btn btn-edit" style="min-height:30px; padding:4px 8px;" title="Edit Info">✏️</button>
                     <button onclick="deleteMedia(${v.message_id})" class="btn btn-del" style="min-height:30px; padding:4px 8px;" title="Delete">🗑️</button>

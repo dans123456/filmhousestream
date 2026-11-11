@@ -214,35 +214,36 @@ async def flush_batch(client: Client, user_id: int):
         if all_movies and len(items) > 1:
             # Check if this multi-file batch is actually an episodic series
             titles = [it["parsed"].get("title") or it["file_name"] for it in items]
-            clean_titles = [re.sub(r"[\s\.\-_0-9]+$", "", t).strip() for t in titles]
-            first_base = clean_titles[0].lower() if clean_titles else ""
-            shared_show = len(first_base) >= 3 and sum(1 for t in clean_titles if t.lower().startswith(first_base[:5])) >= (len(clean_titles) // 2)
-            has_numbers = sum(1 for it in items if re.search(r"\b\d{1,3}\b", it["file_name"])) >= (len(items) // 2)
+            clean_titles = [re.sub(r"[\s\.\-_0-9]+$", "", t).strip().lower() for t in titles]
+            same_title = len(set(clean_titles)) == 1
 
-            # Also check TMDB for the common title
-            tmdb_is_tv = False
-            if clean_titles and getattr(config, "TMDB_API_KEY", ""):
-                try:
-                    from server.tmdb_auditor import search_tmdb_tv
-                    import aiohttp
-                    async with aiohttp.ClientSession() as s:
-                        tv_match = await search_tmdb_tv(s, clean_titles[0])
-                        if tv_match and (tv_match.get("vote_count", 0) >= 3 or tv_match.get("popularity", 0) >= 1.0):
-                            tmdb_is_tv = True
-                            first_base = tv_match.get("name") or clean_titles[0]
-                except Exception:
-                    pass
+            # Check for movie qualities (e.g. 720p, 1080p, 480p)
+            qualities = [it["parsed"].get("quality") for it in items if it["parsed"].get("quality")]
+            has_qual_diff = len(set(qualities)) > 1 and len(qualities) == len(items)
+            has_year = any(it["parsed"].get("year") for it in items)
 
-            if shared_show or has_numbers or tmdb_is_tv:
-                logger.info(f"Auto-Promoting multi-file batch ({len(items)} files) to Series Batch (Shared title / TMDB / episodic numbers detected)")
-                for idx, it in enumerate(items, 1):
+            # Extract distinct episode numbers (excluding year, quality tags, and file sizes)
+            distinct_ep_nums = set()
+            for it in items:
+                clean_fn = re.sub(r"\b(19\d{2}|20\d{2})\b", "", it["file_name"])
+                clean_fn = re.sub(r"\b(2160p|1080p|720p|480p|360p|4k)\b", "", clean_fn, flags=re.IGNORECASE)
+                clean_fn = re.sub(r"\b\d+(?:mb|gb)\b", "", clean_fn, flags=re.IGNORECASE)
+                m = re.search(r"\b(?:ep|episode|e)?\s*0?(\d{1,3})\b", clean_fn, re.IGNORECASE)
+                if m:
+                    distinct_ep_nums.add(int(m.group(1)))
+
+            # If all files share the same movie title AND (have different qualities or a release year), AND don't have distinct episode numbers:
+            # IT IS 100% A MULTI-QUALITY MOVIE BATCH (e.g. Elf 2003 in 720p and 1080p)!
+            if same_title and (has_qual_diff or has_year) and len(distinct_ep_nums) <= 1:
+                all_movies = True
+            elif len(distinct_ep_nums) >= 2 and len(distinct_ep_nums) == len(items):
+                # Genuine TV series with distinct episode sequence (e.g. 1, 2, 3...)
+                logger.info(f"Auto-Promoting multi-file batch ({len(items)} files) to Series Batch (Distinct episodic numbers detected: {distinct_ep_nums})")
+                sorted_eps = sorted(list(distinct_ep_nums))
+                for it, ep_num in zip(items, sorted_eps):
                     it["parsed"]["is_series"] = True
                     it["parsed"]["season"] = it["parsed"].get("season") or 1
-                    if not it["parsed"].get("episode"):
-                        m = re.search(r"\b(?:ep|episode|e)?\s*0?(\d{1,3})\b", it["file_name"], re.IGNORECASE)
-                        it["parsed"]["episode"] = int(m.group(1)) if m else idx
-                    if clean_titles[0]:
-                        it["parsed"]["title"] = clean_titles[0]
+                    it["parsed"]["episode"] = ep_num
                 all_movies = False
 
         if all_movies:
@@ -325,11 +326,13 @@ async def process_movies_batch(client: Client, user_id: int, items: list, status
             text = (
                 f"🎬 **{movie_title}{year_str}**\n"
                 f"✨ **{len(processed_versions)} Qualities Available ({qual_tags})**\n\n"
-                f"📋 **Stream Player Links:**\n\n"
+                f"📋 **Tap Code Box Below to Copy All Links (1-Tap Copy):**\n"
             )
+            code_lines = []
             for v in processed_versions:
                 sz = f" ({v['file_size_str']})" if v.get("file_size_str") else ""
-                text += f"• **{v['quality']}**{sz}:\n  `{v['stream_url']}`\n\n"
+                code_lines.append(f"{v['quality']}{sz}: {v['stream_url']}")
+            text += "```\n" + "\n".join(code_lines) + "\n```"
         else:
             v = processed_versions[0]
             text = (
