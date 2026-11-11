@@ -570,6 +570,26 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       border-color: rgba(99, 102, 241, 0.6);
       transform: translateY(-1px);
     }
+    .btn-edit-full {
+      flex: 1;
+      background: rgba(99, 102, 241, 0.12);
+      color: #a5b4fc;
+      border-color: rgba(99, 102, 241, 0.25);
+    }
+    .btn-edit-full:hover {
+      background: rgba(99, 102, 241, 0.25);
+      border-color: rgba(99, 102, 241, 0.5);
+    }
+    .btn-del-full {
+      flex: 1;
+      background: rgba(239, 68, 68, 0.12);
+      color: #fca5a5;
+      border-color: rgba(239, 68, 68, 0.25);
+    }
+    .btn-del-full:hover {
+      background: rgba(239, 68, 68, 0.25);
+      border-color: rgba(239, 68, 68, 0.5);
+    }
     /* Series Folder Card Styling */
     .series-folder-card {
       width: 100%;
@@ -2500,8 +2520,8 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
                 <button onclick="copyToClipboard('${item.stream_url}')" class="btn btn-copy">📋 Copy Link</button>
               </div>
               <div class="action-row">
-                <button onclick="openEditModal(event, ${item.message_id})" class="btn btn-edit" title="Edit Info">✏️ Edit</button>
-                <button onclick="deleteMedia(${item.message_id})" class="btn btn-del" title="Delete from Storage">🗑️ Delete</button>
+                <button onclick="openEditModal(event, ${item.message_id})" class="btn btn-edit-full" title="Edit Info">✏️ Edit</button>
+                <button onclick="deleteMedia(${item.message_id})" class="btn btn-del-full" title="Delete from Storage">🗑️ Delete</button>
               </div>
             </div>
           </div>
