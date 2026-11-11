@@ -201,7 +201,7 @@ async def flush_batch(client: Client, user_id: int):
 
                 buttons = [
                     [InlineKeyboardButton("▶️ Test Stream (Player)", url=stream_url)],
-                    [InlineKeyboardButton("📱 View in Library (Admin WebApp)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library"))],
+                    [InlineKeyboardButton("📱 View in Library (Admin WebApp)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library?admin_key={config.ADMIN_SECRET}"))],
                 ]
                 await status_msg.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
             except Exception as e:
@@ -317,7 +317,7 @@ async def process_movies_batch(client: Client, user_id: int, items: list, status
         top_version = processed_versions[0]
         buttons = [
             [InlineKeyboardButton("▶️ Test Stream (Player)", url=top_version["stream_url"])],
-            [InlineKeyboardButton("📱 View Library (Admin WebApp)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library"))],
+            [InlineKeyboardButton("📱 View Library (Admin WebApp)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library?admin_key={config.ADMIN_SECRET}"))],
         ]
 
         if len(processed_versions) > 1:
@@ -544,7 +544,7 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
         first_stream = processed_links[0]["stream_url"] if processed_links else ""
         buttons = [
             [InlineKeyboardButton("▶️ Test Stream (Player)", url=first_stream)],
-            [InlineKeyboardButton("📱 View Library (Admin WebApp)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library"))],
+            [InlineKeyboardButton("📱 View Library (Admin WebApp)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library?admin_key={config.ADMIN_SECRET}"))],
         ]
 
         chunk_size = 50

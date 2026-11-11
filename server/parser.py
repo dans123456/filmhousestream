@@ -502,20 +502,33 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
     return result
 
 
+def safe_int(val, default=None):
+    """Safely coerces any value (string, float, int) to an int, returning default on failure."""
+    if val is None:
+        return default
+    try:
+        s = str(val).strip()
+        if not s or s.lower() == "none":
+            return default
+        return int(float(s))
+    except Exception:
+        return default
+
+
 def build_golden_filename(parsed: dict, original_filename: str) -> str:
     """Builds the pure Golden Dot standard filename for movies and series."""
     ext_match = re.search(r"\.([a-zA-Z0-9]{2,4})$", original_filename or "")
     ext = f".{ext_match.group(1).lower()}" if ext_match else ".mkv"
 
-    clean_title = re.sub(r"[^\w\s\-]", "", parsed.get("title") or "Unknown Media").strip()
+    clean_title = re.sub(r"[^\w\s\-]", "", str(parsed.get("title") or "Unknown Media")).strip()
     dots_title = ".".join(clean_title.split())
 
     if parsed.get("is_series"):
-        s_num = parsed.get("season") or 1
-        e_num = parsed.get("episode") or 1
-        end_e_num = parsed.get("end_episode")
-        if end_e_num and int(end_e_num) > int(e_num):
-            s_tag = f"S{s_num:02d}E{e_num:02d}-E{int(end_e_num):02d}"
+        s_num = safe_int(parsed.get("season"), default=1)
+        e_num = safe_int(parsed.get("episode"), default=1)
+        end_e_num = safe_int(parsed.get("end_episode"), default=None)
+        if end_e_num and end_e_num > e_num:
+            s_tag = f"S{s_num:02d}E{e_num:02d}-E{end_e_num:02d}"
         else:
             s_tag = f"S{s_num:02d}E{e_num:02d}"
         q_tag = f".{parsed['quality']}" if parsed.get("quality") else ""

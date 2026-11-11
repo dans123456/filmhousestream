@@ -12,7 +12,7 @@ from server.security import (
     verify_admin_access,
     check_rate_limit,
 )
-from server.parser import parse_filename
+from server.parser import parse_filename, build_golden_filename, safe_int
 from server.cache import get_cached_chunk, store_cached_chunk, get_cache_stats
 from bot.storage import get_tracked_files, remove_tracked_files, update_tracked_category, update_tracked_metadata
 from server.library_template import LIBRARY_HTML
@@ -637,6 +637,9 @@ async def handle_library(request: web.Request) -> web.Response:
         headers={
             "Access-Control-Allow-Origin": "*",
             "Content-Security-Policy": "frame-ancestors *",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
         }
     )
 
@@ -772,16 +775,17 @@ def build_api_media_payload() -> dict:
                         parsed["episode_title"] = "Special"
 
             # Auto-heal false TV series from older parser (e.g. Return of Beyonce 1, Iron Man 2)
-            fresh_p = parse_filename(fn)
-            if not fresh_p.get("is_series") and parsed.get("is_series"):
+            if parsed.get("is_series"):
                 has_explicit_ep = bool(re.search(r"\b(?:s\d{1,2}|e\d{1,3}|ep|episode|s\d{1,2}e\d{1,3})\b", fn, re.IGNORECASE))
                 has_zero_pad = bool(re.search(r"[\s\.\-_]0\d{1,2}\b", fn))
                 if not has_explicit_ep and not has_zero_pad:
-                    parsed["is_series"] = False
-                    parsed["title"] = fresh_p.get("title") or parsed.get("title")
-                    parsed["season"] = None
-                    parsed["episode"] = None
-                    parsed["category"] = fresh_p.get("category") or ("african" if "beyonce" in lower_fn else "movies")
+                    fresh_p = parse_filename(fn)
+                    if not fresh_p.get("is_series"):
+                        parsed["is_series"] = False
+                        parsed["title"] = fresh_p.get("title") or parsed.get("title")
+                        parsed["season"] = None
+                        parsed["episode"] = None
+                        parsed["category"] = fresh_p.get("category") or ("african" if "beyonce" in lower_fn else "movies")
 
             title_clean = str(parsed.get("title") or fn or "Unknown")
             if parsed.get("is_series"):
@@ -789,12 +793,12 @@ def build_api_media_payload() -> dict:
                 title_clean = re.sub(r"[\s\.\-_]+(?:the\s+)?(?:end|finale|final)$", "", title_clean, flags=re.IGNORECASE).strip()
 
             if parsed.get("is_series"):
-                s_num = int(parsed.get("season") or 1)
-                e_num = int(parsed.get("episode") or 1)
-                end_num = parsed.get("end_episode")
+                s_num = safe_int(parsed.get("season"), default=1)
+                e_num = safe_int(parsed.get("episode"), default=1)
+                end_num = safe_int(parsed.get("end_episode"), default=None)
                 s_str = f"S{s_num:02d}"
-                if end_num and int(end_num) > e_num:
-                    e_str = f"E{e_num:02d}-E{int(end_num):02d}"
+                if end_num and end_num > e_num:
+                    e_str = f"E{e_num:02d}-E{end_num:02d}"
                 else:
                     e_str = f"E{e_num:02d}"
                 ep_sub = f" — {parsed['episode_title']}" if parsed.get("episode_title") else ""
@@ -823,7 +827,6 @@ def build_api_media_payload() -> dict:
             elif not parsed.get("is_series") and category == "series":
                 category = "movies"
 
-            from server.parser import build_golden_filename
             golden_fn = parsed.get("golden_name")
             if not golden_fn or " " in golden_fn or "_" in golden_fn or "filmhouse" in golden_fn.lower():
                 golden_fn = build_golden_filename(parsed, fn)
@@ -835,9 +838,9 @@ def build_api_media_payload() -> dict:
                 "original_file_name": fn,
                 "display_name": display_title or golden_fn,
                 "series_title": title_clean if parsed.get("is_series") else None,
-                "season": int(parsed.get("season") or 1) if parsed.get("is_series") else None,
-                "episode": int(parsed.get("episode") or 1) if parsed.get("is_series") else None,
-                "end_episode": int(parsed.get("end_episode")) if parsed.get("end_episode") else None,
+                "season": safe_int(parsed.get("season"), default=1) if parsed.get("is_series") else None,
+                "episode": safe_int(parsed.get("episode"), default=1) if parsed.get("is_series") else None,
+                "end_episode": safe_int(parsed.get("end_episode"), default=None) if parsed.get("is_series") else None,
                 "episode_title": parsed.get("episode_title") if parsed.get("is_series") else None,
                 "quality": parsed.get("quality") or "HD",
                 "is_series": bool(parsed.get("is_series", False)),

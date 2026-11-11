@@ -1510,6 +1510,9 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       try {
         const tgInit = window.Telegram?.WebApp?.initData || '';
         const urlKey = new URLSearchParams(window.location.search).get('admin_key') || '';
+        if (urlKey) {
+          try { sessionStorage.setItem('filmhouse_admin_key', urlKey); } catch(e) {}
+        }
         const storedKey = sessionStorage.getItem('filmhouse_admin_key') || urlKey;
 
         let apiUrl = '/api/media';
@@ -1519,9 +1522,15 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         const qs = params.toString();
         if (qs) apiUrl += '?' + qs;
 
-        const res = await fetch(apiUrl, {
-          headers: getAuthHeaders()
-        });
+        let res;
+        try {
+          res = await fetch(apiUrl, { headers: getAuthHeaders() });
+        } catch (fetchErr) {
+          // Auto-retry once in case the server was starting up or pre-warming cache
+          console.warn("Initial media fetch failed, retrying in 1.2s...", fetchErr);
+          await new Promise(r => setTimeout(r, 1200));
+          res = await fetch(apiUrl, { headers: getAuthHeaders() });
+        }
 
         if (res.status === 401 || res.status === 403) {
           if (statsBadge) statsBadge.textContent = 'Auth Required';
