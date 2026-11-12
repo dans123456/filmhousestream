@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import config
 from bot.client import get_tg_client
-from bot.storage import get_tracked_files, remove_tracked_files
+from bot.storage import get_tracked_files, remove_tracked_files, is_nameless_record, get_nameless_records
 
 DEFAULT_TARGETS = [
     "different.kinds.of.robots",
@@ -47,9 +47,35 @@ def normalize_name(s: str) -> str:
     return re.sub(r"[^a-z0-9]", "", str(s).lower())
 
 
+def is_nameless_file(r: dict) -> bool:
+    """Checks if a media record has no series/movie name (bare S01E or dot-prefixed episode)."""
+    fn = (r.get("original_filename") or r.get("file_name") or "").strip()
+    title = (r.get("title") or "").strip()
+
+    # Starts with a dot like .S01E11.mkv
+    if fn.startswith("."):
+        return True
+    
+    # Bare SxxExx or Episode XX with no show name
+    if re.match(r"^[\s\._\-]*s\d{1,2}e\d{1,3}", fn, re.IGNORECASE):
+        return True
+    if re.match(r"^[\s\._\-]*episode[\s\._\-]*\d+[\s\._\-]*s\d+e\d+", fn, re.IGNORECASE):
+        return True
+    
+    # Needs title or title is just "Episode X" / "S01EX"
+    if r.get("needs_title"):
+        return True
+    if re.match(r"^[\s\._\-]*(?:episode\s*\d+|s\d{1,2}e\d{1,3}|unnamed\s*series)[\s\._\-]*$", title, re.IGNORECASE):
+        return True
+    
+    return False
+
+
 async def main():
     args = sys.argv[1:]
     auto_confirm = "-y" in args or "--yes" in args
+    dry_run = "--dry-run" in args
+    delete_nameless = "--nameless" in args or "--dot-files" in args
     custom_keywords = [a for a in args if not a.startswith("-")]
 
     records = get_tracked_files()
@@ -58,8 +84,11 @@ async def main():
         return
 
     matched_records = []
-    
-    if custom_keywords:
+
+    if delete_nameless:
+        print("🔍 Searching for nameless / dot-prefixed episodes (.S01E..., Episode.15.S01E15)...")
+        matched_records = get_nameless_records()
+    elif custom_keywords:
         print(f"🔍 Searching for files matching: {custom_keywords}")
         for r in records:
             fn = r.get("original_filename") or r.get("file_name") or ""
@@ -87,6 +116,10 @@ async def main():
         print(f"  {i}. [ID {mid}] {fn}")
         if mid:
             message_ids.append(int(mid))
+
+    if dry_run:
+        print("\n🔍 Dry-run complete. No files were deleted.")
+        return
 
     if not auto_confirm:
         confirm = input(f"\nAre you sure you want to delete these {len(message_ids)} files permanently? (y/N): ").strip().lower()
@@ -117,6 +150,11 @@ async def main():
     # Remove from local ledger
     print("💾 Removing entries from local tracked_media ledger...")
     remove_tracked_files(message_ids)
+    try:
+        from server.stream_server import invalidate_media_cache
+        invalidate_media_cache()
+    except Exception:
+        pass
     print(f"✨ Done! Successfully deleted {len(message_ids)} files.\n")
 
 

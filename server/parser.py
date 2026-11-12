@@ -367,6 +367,8 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             clean_title = "Nymphomaniac: Vol. II"
         elif lower_t in ("its okay", "it's okay"):
             clean_title = "It's Okay!"
+        elif lower_t in ("beast of no nation", "beasts of no nation"):
+            clean_title = "Beasts of No Nation"
 
         # Acronyms, compound titles, and collapsed aliases
         collapsed = re.sub(r"[^a-z0-9]", "", lower_t)

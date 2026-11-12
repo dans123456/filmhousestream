@@ -63,6 +63,40 @@ def get_tracked_files(limit: int = None) -> List[Dict[str, Any]]:
         return []
 
 
+def is_nameless_record(r: dict) -> bool:
+    """Checks if a media record has no series/movie name (bare S01E, dot-prefixed, or generic Episode X)."""
+    import re
+    fn = (r.get("original_filename") or r.get("file_name") or "").strip()
+    title = (r.get("title") or "").strip()
+    parsed = r.get("parsed") or {}
+    parsed_title = (parsed.get("title") or "").strip()
+
+    # Starts with a dot like .S01E11.mkv
+    if fn.startswith("."):
+        return True
+
+    # Bare SxxExx or Episode XX with no show name
+    if re.match(r"^[\s\._\-]*s\d{1,2}e\d{1,3}", fn, re.IGNORECASE):
+        return True
+    if re.match(r"^[\s\._\-]*episode[\s\._\-]*\d+[\s\._\-]*s\d+e\d+", fn, re.IGNORECASE):
+        return True
+
+    # Needs title or title is just "Episode X" / "S01EX" / "Unnamed Series"
+    if r.get("needs_title") or parsed.get("needs_title"):
+        return True
+    for t in (title, parsed_title):
+        if t and re.match(r"^[\s\._\-]*(?:episode\s*\d+|s\d{1,2}e\d{1,3}|unnamed\s*series)[\s\._\-]*$", t, re.IGNORECASE):
+            return True
+
+    return False
+
+
+def get_nameless_records() -> List[Dict[str, Any]]:
+    """Retrieve all nameless or dot-prefixed corrupted file records."""
+    records = get_tracked_files()
+    return [r for r in records if is_nameless_record(r)]
+
+
 def remove_tracked_files(message_ids: List[int]):
     """Remove deleted message IDs from the local ledger."""
     _ensure_storage()

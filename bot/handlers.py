@@ -10,7 +10,7 @@ from hydrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton,
 from server.security import generate_stream_token
 from server.parser import parse_filename
 from server.stream_server import format_bytes
-from bot.storage import record_indexed_file, get_tracked_files, remove_tracked_files
+from bot.storage import record_indexed_file, get_tracked_files, remove_tracked_files, get_nameless_records, is_nameless_record
 import config
 
 logger = logging.getLogger("filmhouse.bot")
@@ -661,6 +661,35 @@ def register_handlers(app: Client):
             return
         await send_bin_manager_menu(message)
 
+    @app.on_message(filters.command(["purge_nameless", "deletenameless"]) & filters.private)
+    async def purge_nameless_command(client: Client, message: Message):
+        """Interactive command to find and purge all nameless/dot-prefixed files."""
+        if not is_authorized(message.from_user.id):
+            return
+        nameless = get_nameless_records()
+        if not nameless:
+            await message.reply_text("✅ **No nameless or corrupted files found!**\nAll tracked files in your storage ledger have valid titles.")
+            return
+
+        preview_lines = []
+        for r in nameless[:10]:
+            fn = r.get("original_filename") or r.get("file_name") or f"ID {r.get('message_id')}"
+            preview_lines.append(f"• `{fn}`")
+        preview_text = "\n".join(preview_lines)
+        more_text = f"\n_...and {len(nameless) - 10} more files_" if len(nameless) > 10 else ""
+
+        text = (
+            f"⚠️ **Found {len(nameless)} Nameless / Dot-Prefixed Files:**\n\n"
+            f"{preview_text}{more_text}\n\n"
+            "These files have no show title (e.g. `.S01E11.mkv`, `Episode.15.S01E15`).\n"
+            "Permanently delete them from your Storage Channel and database so you can re-forward them properly named?"
+        )
+        buttons = [
+            [InlineKeyboardButton(f"🔴 Delete All {len(nameless)} Nameless Files", callback_data="bin_del_nameless_exec")],
+            [InlineKeyboardButton("🟢 Cancel", callback_data="bin_manage")],
+        ]
+        await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+
     @app.on_message(filters.command(["library", "app"]) & filters.private)
     async def library_command_handler(client: Client, message: Message):
         """Opens the FilmHouse Media Library Mini App."""
@@ -882,6 +911,71 @@ def register_handlers(app: Client):
         await query.answer(f"🧹 Cleaned {deleted_count} files from storage channel!", show_alert=True)
         await send_bin_manager_menu(query.message, edit=True)
 
+    @app.on_callback_query(filters.regex("bin_del_nameless_confirm"))
+    async def bin_del_nameless_confirm_callback(client: Client, query: CallbackQuery):
+        """Shows confirmation for deleting nameless / dot-prefixed files."""
+        if not is_authorized(query.from_user.id):
+            await query.answer("⛔ Access Denied: Admin authorization required.", show_alert=True)
+            return
+        nameless = get_nameless_records()
+        if not nameless:
+            await query.answer("✅ No nameless files found!", show_alert=True)
+            return
+        preview_lines = []
+        for r in nameless[:10]:
+            fn = r.get("original_filename") or r.get("file_name") or f"ID {r.get('message_id')}"
+            preview_lines.append(f"• `{fn}`")
+        preview_text = "\n".join(preview_lines)
+        more_text = f"\n_...and {len(nameless) - 10} more files_" if len(nameless) > 10 else ""
+
+        text = (
+            f"⚠️ **Found {len(nameless)} Nameless / Dot-Prefixed Files:**\n\n"
+            f"{preview_text}{more_text}\n\n"
+            "Permanently delete these files from your Telegram storage channel and database?"
+        )
+        buttons = [
+            [InlineKeyboardButton(f"🔴 Delete All {len(nameless)} Nameless Files", callback_data="bin_del_nameless_exec")],
+            [InlineKeyboardButton("🟢 Cancel", callback_data="bin_manage")],
+        ]
+        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+
+    @app.on_callback_query(filters.regex("bin_del_nameless_exec"))
+    async def bin_del_nameless_exec_callback(client: Client, query: CallbackQuery):
+        """Executes deletion of nameless files."""
+        if not is_authorized(query.from_user.id):
+            await query.answer("⛔ Access Denied: Admin authorization required.", show_alert=True)
+            return
+        nameless = get_nameless_records()
+        if not nameless:
+            await query.answer("No nameless files found.", show_alert=True)
+            await send_bin_manager_menu(query.message, edit=True)
+            return
+
+        ids = [item["message_id"] for item in nameless if item.get("message_id")]
+        deleted_count = 0
+        for i in range(0, len(ids), 50):
+            chunk = ids[i:i + 50]
+            try:
+                await client.delete_messages(config.BIN_CHANNEL_ID, chunk)
+                deleted_count += len(chunk)
+                await asyncio.sleep(0.3)
+            except Exception as e:
+                logger.error(f"Error deleting nameless batch: {e}")
+
+        remove_tracked_files(ids)
+        try:
+            from server.stream_server import invalidate_media_cache
+            invalidate_media_cache()
+        except Exception:
+            pass
+
+        await query.answer(f"✅ Deleted {deleted_count} nameless files!", show_alert=True)
+        await query.message.edit_text(
+            f"🎉 **Deleted {deleted_count} nameless files successfully!**\n\n"
+            "Your database and storage channel are clean. You can now re-forward those episodes with their proper show titles.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Bin Manager", callback_data="bin_manage")]])
+        )
+
     @app.on_callback_query(filters.regex("bin_manual_help"))
     async def bin_manual_help_callback(client: Client, query: CallbackQuery):
         """Explains how to manually clear files in Telegram channel."""
@@ -941,7 +1035,7 @@ def register_handlers(app: Client):
     # Option B: Title Reply Listener for Nameless Batches
     # ==========================================
 
-    @app.on_message(filters.text & filters.private & ~filters.command(["start", "menu", "help", "status", "clear_bin", "library", "app", "cancel", "audit", "checkepisodes", "single_episodes", "synctmdb"]))
+    @app.on_message(filters.text & filters.private & ~filters.command(["start", "menu", "help", "status", "clear_bin", "purge_nameless", "deletenameless", "library", "app", "cancel", "audit", "checkepisodes", "single_episodes", "synctmdb"]))
     async def title_reply_handler(client: Client, message: Message):
         user_id = message.from_user.id
         if not is_authorized(user_id):
@@ -1077,6 +1171,7 @@ async def send_bin_manager_menu(message: Message, edit: bool = False):
     )
 
     buttons = [
+        [InlineKeyboardButton("🗑️ Purge Nameless Files (.S01E...)", callback_data="bin_del_nameless_confirm")],
         [InlineKeyboardButton(f"🗑️ Delete Last 25 Test Files", callback_data="bin_del_recent")],
         [InlineKeyboardButton("⚠️ Empty All Test Files (Danger)", callback_data="bin_del_all_confirm")],
         [InlineKeyboardButton("📱 Clear Directly in Telegram", callback_data="bin_manual_help")],
