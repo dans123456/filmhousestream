@@ -47,30 +47,6 @@ def normalize_name(s: str) -> str:
     return re.sub(r"[^a-z0-9]", "", str(s).lower())
 
 
-def is_nameless_file(r: dict) -> bool:
-    """Checks if a media record has no series/movie name (bare S01E or dot-prefixed episode)."""
-    fn = (r.get("original_filename") or r.get("file_name") or "").strip()
-    title = (r.get("title") or "").strip()
-
-    # Starts with a dot like .S01E11.mkv
-    if fn.startswith("."):
-        return True
-    
-    # Bare SxxExx or Episode XX with no show name
-    if re.match(r"^[\s\._\-]*s\d{1,2}e\d{1,3}", fn, re.IGNORECASE):
-        return True
-    if re.match(r"^[\s\._\-]*episode[\s\._\-]*\d+[\s\._\-]*s\d+e\d+", fn, re.IGNORECASE):
-        return True
-    
-    # Needs title or title is just "Episode X" / "S01EX"
-    if r.get("needs_title"):
-        return True
-    if re.match(r"^[\s\._\-]*(?:episode\s*\d+|s\d{1,2}e\d{1,3}|unnamed\s*series)[\s\._\-]*$", title, re.IGNORECASE):
-        return True
-    
-    return False
-
-
 async def main():
     args = sys.argv[1:]
     auto_confirm = "-y" in args or "--yes" in args

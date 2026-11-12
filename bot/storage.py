@@ -64,29 +64,38 @@ def get_tracked_files(limit: int = None) -> List[Dict[str, Any]]:
 
 
 def is_nameless_record(r: dict) -> bool:
-    """Checks if a media record has no series/movie name (bare S01E, dot-prefixed, or generic Episode X)."""
+    """
+    Checks if a media record has NO actual movie/show title at all.
+    Strictly matches ONLY:
+      - .S01E11.mkv, S01E11.mkv (only season and episode, no show name)
+      - Episode.15.S01E15.mkv, Episode 15.mkv (no show name)
+    Does NOT match files with legitimate titles like:
+      - S05E01.All.The.Queen's.Men.mkv
+      - .A.Shop.for.Killers.mkv
+      - Pursuit Of Jade, Never Ending Summer, etc.
+    """
     import re
     fn = (r.get("original_filename") or r.get("file_name") or "").strip()
     title = (r.get("title") or "").strip()
     parsed = r.get("parsed") or {}
     parsed_title = (parsed.get("title") or "").strip()
 
-    # Starts with a dot like .S01E11.mkv
-    if fn.startswith("."):
+    base_fn = re.sub(r"\.[a-zA-Z0-9]{2,4}$", "", fn).strip()
+
+    # 1. Bare SxxExx (e.g. ".S01E11", "S01E12", ".s1e05")
+    if re.match(r"^\.?\s*[sS]\d{1,2}[\s\._\-]*[eE]\d{1,3}(?:[\s\._\-]*[eE]\d{1,3})?$", base_fn):
         return True
 
-    # Bare SxxExx or Episode XX with no show name
-    if re.match(r"^[\s\._\-]*s\d{1,2}e\d{1,3}", fn, re.IGNORECASE):
-        return True
-    if re.match(r"^[\s\._\-]*episode[\s\._\-]*\d+[\s\._\-]*s\d+e\d+", fn, re.IGNORECASE):
+    # 2. Bare Episode XX or Episode XX SxxExx (e.g. "Episode.15.S01E15", "Episode 15", "Ep 12")
+    if re.match(r"^\.?\s*(?:[eE]p(?:isode)?|EP)[\s\._\-]*\d{1,3}(?:[\s\._\-]*[sS]\d{1,2}[\s\._\-]*[eE]\d{1,3})?$", base_fn, re.IGNORECASE):
         return True
 
-    # Needs title or title is just "Episode X" / "S01EX" / "Unnamed Series"
-    if r.get("needs_title") or parsed.get("needs_title"):
-        return True
+    # 3. Check if parsed title is purely generic ("Episode X", "S01EX", "Unnamed Series") and filename has no actual title words
     for t in (title, parsed_title):
         if t and re.match(r"^[\s\._\-]*(?:episode\s*\d+|s\d{1,2}e\d{1,3}|unnamed\s*series)[\s\._\-]*$", t, re.IGNORECASE):
-            return True
+            words = [w for w in re.split(r"[\s\._\-]+", base_fn) if w and not re.match(r"^(?:s\d{1,2}e\d{1,3}|ep\d*|episode\d*|720p|1080p|480p|filmhouse|fil|x264|x265|mkv|mp4)$", w, re.IGNORECASE)]
+            if len(words) == 0:
+                return True
 
     return False
 
