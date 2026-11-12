@@ -635,18 +635,16 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
     }
     .folder-header {
       display: flex;
-      align-items: center;
-      justify-content: space-between;
+      flex-direction: column;
       gap: 10px;
       cursor: pointer;
       user-select: none;
     }
-    .folder-title-box {
+    .folder-header-top {
       display: flex;
       align-items: center;
       gap: 10px;
-      flex: 1;
-      min-width: 0;
+      width: 100%;
     }
     .folder-icon {
       width: 40px;
@@ -660,28 +658,74 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       font-size: 20px;
       flex-shrink: 0;
     }
-    .folder-info {
+    .folder-title-wrap {
       flex: 1;
       min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
     }
-    .folder-name {
+    .folder-name-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .folder-title-text {
       font-size: 1.05rem;
       font-weight: 700;
       color: #fff;
       line-height: 1.3;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      word-break: break-word;
     }
-    .folder-meta {
+    .status-badge {
+      display: inline-block;
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 6px;
+      white-space: nowrap;
+    }
+    .badge-incomplete {
+      background: rgba(239, 68, 68, 0.22);
+      border: 1px solid rgba(239, 68, 68, 0.45);
+      color: #fca5a5;
+    }
+    .badge-complete {
+      background: rgba(34, 197, 94, 0.18);
+      border: 1px solid rgba(34, 197, 94, 0.4);
+      color: #86efac;
+    }
+    .folder-meta-text {
       font-size: 0.74rem;
       color: #94a3b8;
-      margin-top: 2px;
       display: flex;
       align-items: center;
       gap: 6px;
       flex-wrap: wrap;
       line-height: 1.35;
+    }
+    .folder-header-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      width: 100%;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      flex-wrap: wrap;
+    }
+    .folder-actions-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .folder-actions-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
     }
     .folder-toggle-btn {
       width: 32px;
@@ -758,6 +802,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       user-select: none;
       background: rgba(255, 255, 255, 0.03);
       transition: background 0.2s ease;
+      flex-wrap: wrap;
     }
     .season-subfolder-header:hover {
       background: rgba(99, 102, 241, 0.12);
@@ -2525,17 +2570,17 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         subHtml += `
         <div class="series-folder-card ${auditInfo ? 'folder-incomplete' : ''}" style="${auditInfo ? 'border-color: rgba(239,68,68,0.4);' : ''}">
           <div class="folder-header" onclick="toggleFolder('${group.canonicalKey}')">
-            <div class="folder-title-box">
+            <!-- Row 1: Title, Icon, Status & Expand Arrow -->
+            <div class="folder-header-top">
               <div class="folder-icon">${auditInfo ? '⚠️' : '📺'}</div>
-              <div class="folder-info">
-                <div class="folder-name" title="${escapeHtml(group.title)}">
-                  ${escapeHtml(group.title)}
-                  ${auditInfo ? 
-                    `<span style="display:inline-block; margin-left:6px; background:rgba(239,68,68,0.25); border:1px solid rgba(239,68,68,0.45); color:#fca5a5; font-size:0.68rem; font-weight:700; padding:1px 6px; border-radius:6px; vertical-align:middle;">Incomplete</span>` : 
-                    `<span style="display:inline-block; margin-left:6px; background:rgba(34,197,94,0.18); border:1px solid rgba(34,197,94,0.4); color:#86efac; font-size:0.68rem; font-weight:700; padding:1px 6px; border-radius:6px; vertical-align:middle;">Complete</span>`
-                  }
+              <div class="folder-title-wrap">
+                <div class="folder-name-row">
+                  <span class="folder-title-text" title="${escapeHtml(group.title)}">${escapeHtml(group.title)}</span>
+                  <span class="status-badge ${auditInfo ? 'badge-incomplete' : 'badge-complete'}">
+                    ${auditInfo ? 'Incomplete' : 'Complete'}
+                  </span>
                 </div>
-                <div class="folder-meta">
+                <div class="folder-meta-text">
                   <span>${seasonKeys.length === 1 ? `Season ${seasonKeys[0]}` : `${seasonKeys.length} Seasons (S${seasonKeys[0]}–S${seasonKeys[seasonKeys.length - 1]})`}</span> • 
                   ${auditInfo && auditInfo.reasons && auditInfo.reasons.length > 0 ? 
                     `<span style="color:#f87171; font-weight:700;">⚠️ ${escapeHtml(auditInfo.reasons[0])}</span>` : 
@@ -2543,14 +2588,20 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
                   }
                 </div>
               </div>
-            </div>
-            <div style="display:flex; align-items:center; gap:6px;">
-              <button onclick="toggleSeriesComplete(event, '${group.canonicalKey}')" class="btn-complete-toggle ${isSeriesComplete ? 'is-complete' : ''}" title="${isSeriesComplete ? 'Series marked Complete by Admin. Tap to toggle.' : 'Tap to mark entire Series as Complete'}">
-                ${isSeriesComplete ? '✅ Complete' : 'Mark Complete'}
-              </button>
-              <span class="badge-category" onclick="openCategoryModal(event, ${group.firstMid})" title="Change Category">${catObj.icon} ${catObj.tag} ▾</span>
-              <span class="badge-quality">${escapeHtml(group.quality)}</span>
               <div class="folder-toggle-btn ${isExpanded ? 'expanded' : ''}">▼</div>
+            </div>
+
+            <!-- Row 2: Category, Quality & Complete Toggle Button -->
+            <div class="folder-header-actions">
+              <div class="folder-actions-left">
+                <span class="badge-category" onclick="openCategoryModal(event, ${group.firstMid})" title="Change Category">${catObj.icon} ${catObj.tag} ▾</span>
+                <span class="badge-quality">${escapeHtml(group.quality || 'HD')}</span>
+              </div>
+              <div class="folder-actions-right">
+                <button onclick="toggleSeriesComplete(event, '${group.canonicalKey}')" class="btn-complete-toggle ${isSeriesComplete ? 'is-complete' : ''}" title="${isSeriesComplete ? 'Series marked Complete by Admin. Tap to toggle.' : 'Tap to mark entire Series as Complete'}">
+                  ${isSeriesComplete ? '✅ Complete' : 'Mark Complete'}
+                </button>
+              </div>
             </div>
           </div>
 
