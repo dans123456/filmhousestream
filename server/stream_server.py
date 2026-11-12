@@ -493,11 +493,16 @@ async def stream_transmuxed_mp4(request: web.Request, message, file_name: str) -
             }
         )
 
+    audio_req = request.query.get("audio") or request.query.get("audio_track")
+    audio_map = f"0:a:{audio_req}" if (audio_req is not None and str(audio_req).isdigit()) else "0:a?"
+
     cmd = [
         ffmpeg_bin,
         "-hide_banner",
         "-loglevel", "error",
         "-i", "pipe:0",
+        "-map", "0:v:0",
+        "-map", audio_map,
         "-c:v", "copy",
         "-c:a", "aac",
         "-b:a", "192k",
