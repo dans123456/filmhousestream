@@ -1,3 +1,5 @@
+import os
+import shutil
 import re
 import math
 import time
@@ -465,6 +467,108 @@ def parse_range_header(range_header: str | None, file_size: int) -> tuple[int, i
         return None
 
 
+
+async def stream_transmuxed_mp4(request: web.Request, message, file_name: str) -> web.StreamResponse:
+    """
+    On-the-fly zero-delay video transmuxer (MKV/TS -> fragmented MP4).
+    Uses 'ffmpeg -c:v copy -c:a aac' to repackage containers in real time
+    for iOS Safari / Telegram WebApp compatibility with 0% CPU re-encoding overhead.
+    """
+    ffmpeg_bin = shutil.which("ffmpeg") or ("/usr/bin/ffmpeg" if os.path.exists("/usr/bin/ffmpeg") else None)
+    if not ffmpeg_bin:
+        return None
+
+    # Handle HEAD request for transmuxed stream
+    if request.method == "HEAD":
+        return web.Response(
+            status=200,
+            headers={
+                "Content-Type": "video/mp4",
+                "Accept-Ranges": "none",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+                "Access-Control-Allow-Headers": "Range, Content-Range, Origin, Accept, Content-Type",
+                "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
+                "Content-Security-Policy": "frame-ancestors *",
+            }
+        )
+
+    cmd = [
+        ffmpeg_bin,
+        "-hide_banner",
+        "-loglevel", "error",
+        "-i", "pipe:0",
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+        "-f", "mp4",
+        "pipe:1"
+    ]
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+    except Exception as e:
+        logger.warning(f"[Transmux] Failed to spawn ffmpeg: {e}")
+        return None
+
+    headers = {
+        "Content-Type": "video/mp4",
+        "Accept-Ranges": "none",
+        "Content-Disposition": f'inline; filename="{file_name}.mp4"',
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+        "Access-Control-Allow-Headers": "Range, Content-Range, Origin, Accept, Content-Type",
+        "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
+        "Content-Security-Policy": "frame-ancestors *",
+    }
+
+    response = web.StreamResponse(status=200, headers=headers)
+    await response.prepare(request)
+
+    client = get_tg_client()
+
+    async def feed_input():
+        try:
+            async for chunk in client.stream_media(message, offset=0):
+                if proc.stdin.is_closing():
+                    break
+                proc.stdin.write(chunk)
+                await proc.stdin.drain()
+        except Exception:
+            pass
+        finally:
+            try:
+                proc.stdin.close()
+                await proc.stdin.wait_closed()
+            except Exception:
+                pass
+
+    feed_task = asyncio.create_task(feed_input())
+
+    try:
+        while True:
+            out_chunk = await proc.stdout.read(64 * 1024)
+            if not out_chunk:
+                break
+            await response.write(out_chunk)
+    except (ConnectionResetError, web.HTTPException, Exception):
+        pass
+    finally:
+        feed_task.cancel()
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        await proc.wait()
+
+    return response
+
 async def handle_stream(request: web.Request) -> web.StreamResponse:
     """
     Core HTTP 206 Partial Content video streaming handler.
@@ -504,8 +608,19 @@ async def handle_stream(request: web.Request) -> web.StreamResponse:
     file_name = info["file_name"]
     message = info["message"]
 
-    # 2. MIME Type Optimization for iOS Safari & Telegram WebApp
+    # 2. MIME Type & On-The-Fly Transmuxing for iOS Safari & Telegram WebApp
     lower_name = file_name.lower()
+    user_agent = request.headers.get("User-Agent", "").lower()
+    wants_remux = (
+        request.query.get("remux") in ("1", "mp4", "true") or
+        ("remux=mp4" in str(request.rel_url)) or
+        (lower_name.endswith((".mkv", ".avi", ".ts")) and ("iphone" in user_agent or "ipad" in user_agent))
+    )
+
+    if wants_remux and lower_name.endswith((".mkv", ".avi", ".ts", ".webm")) and not lower_name.endswith(".mp4"):
+        remux_resp = await stream_transmuxed_mp4(request, message, file_name)
+        if remux_resp is not None:
+            return remux_resp
     if lower_name.endswith((".mp4", ".m4v", ".mov")):
         mime_type = "video/mp4"
     elif lower_name.endswith(".webm"):
