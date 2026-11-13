@@ -496,11 +496,17 @@ async def stream_transmuxed_mp4(request: web.Request, message, file_name: str) -
     audio_req = request.query.get("audio") or request.query.get("audio_track")
     audio_map = f"0:a:{audio_req}" if (audio_req is not None and str(audio_req).isdigit()) else "0:a?"
 
+    ss_param = request.query.get("ss") or request.query.get("t")
+    ss_args = []
+    if ss_param and (str(ss_param).replace(".", "", 1).isdigit()) and float(ss_param) > 0:
+        ss_args = ["-ss", str(ss_param)]
+
     cmd = [
         ffmpeg_bin,
         "-hide_banner",
         "-loglevel", "error",
         "-i", "pipe:0",
+        *ss_args,
         "-map", "0:v:0",
         "-map", audio_map,
         "-c:v", "copy",
@@ -616,13 +622,15 @@ async def handle_stream(request: web.Request) -> web.StreamResponse:
     # 2. MIME Type & On-The-Fly Transmuxing for iOS Safari & Telegram WebApp
     lower_name = file_name.lower()
     user_agent = request.headers.get("User-Agent", "").lower()
+    has_audio_select = (request.query.get("audio") is not None or request.query.get("audio_track") is not None)
     wants_remux = (
         request.query.get("remux") in ("1", "mp4", "true") or
+        has_audio_select or
         ("remux=mp4" in str(request.rel_url)) or
         (lower_name.endswith((".mkv", ".avi", ".ts")) and ("iphone" in user_agent or "ipad" in user_agent))
     )
 
-    if wants_remux and lower_name.endswith((".mkv", ".avi", ".ts", ".webm")) and not lower_name.endswith(".mp4"):
+    if wants_remux and (has_audio_select or (lower_name.endswith((".mkv", ".avi", ".ts", ".webm")) and not lower_name.endswith(".mp4"))):
         remux_resp = await stream_transmuxed_mp4(request, message, file_name)
         if remux_resp is not None:
             return remux_resp
