@@ -202,10 +202,10 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
                 before_text = re.sub(tag_pattern, "", before_text, flags=re.IGNORECASE)
             before_text = re.sub(r"\s+", " ", before_text).strip(" -_")
 
-            # CRITICAL FIX for "Episode 1 - Show Name" filenames:
-            # If before_text is empty or bare (e.g. filename was "Episode 1 - Never Ending Summer"):
+            # CRITICAL FIX for "Episode 1 - Show Name" or "KDG_E01_Show_Name" filenames:
+            # If before_text is empty, bare, or release channel prefix (e.g. "kdg"):
             # The real series title is in after_text!
-            if (not before_text or BARE_EPISODE_REGEX.match(before_text)) and after_text:
+            if (not before_text or BARE_EPISODE_REGEX.match(before_text) or before_text.lower() in ("kdg", "kdrama")) and after_text:
                 working_name = after_text
                 episode_title = None
             else:
@@ -367,6 +367,9 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             clean_title = "Nymphomaniac: Vol. II"
         elif lower_t in ("its okay", "it's okay"):
             clean_title = "It's Okay!"
+        elif lower_t in ("kdg", "it's okay to not be okay", "its okay to not be okay"):
+            clean_title = "It's Okay to Not Be Okay"
+            is_series = True
         elif lower_t in ("beast of no nation", "beasts of no nation"):
             clean_title = "Beasts of No Nation"
 
