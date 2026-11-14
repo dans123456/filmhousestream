@@ -1012,6 +1012,8 @@ def build_api_media_payload() -> dict:
                 "original_file_name": fn,
                 "display_name": display_title or golden_fn,
                 "series_title": title_clean if parsed.get("is_series") else None,
+                "year": safe_int(parsed.get("year") or r.get("year")),
+                "tmdb_id": safe_int(parsed.get("tmdb_id") or r.get("tmdb_id")),
                 "season": safe_int(parsed.get("season"), default=1) if parsed.get("is_series") else None,
                 "episode": safe_int(parsed.get("episode"), default=1) if parsed.get("is_series") else None,
                 "end_episode": safe_int(parsed.get("end_episode"), default=None) if parsed.get("is_series") else None,

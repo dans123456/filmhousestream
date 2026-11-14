@@ -158,40 +158,119 @@ def save_cached_audit(data: Dict[str, Any]):
         logger.error(f"Error saving audit cache to disk: {e}")
 
 
-async def search_tmdb_tv(session: aiohttp.ClientSession, title: str) -> Optional[Dict[str, Any]]:
-    """Searches TMDB for a TV series by title. Cached in memory."""
-    clean_title = re.sub(r"^(?:the\s+)?(?:end|finale|final)\s+", "", title, flags=re.IGNORECASE).strip()
+def invalidate_series_audit(series_name: Optional[str] = None):
+    """Clears cached audit data so re-audit runs fresh."""
+    global _mem_audit_cache, _tv_search_cache
+    if not series_name:
+        _mem_audit_cache = None
+        _tv_search_cache.clear()
+        return
+    norm = re.sub(r"[^a-z0-9]+", "_", series_name.lower()).strip("_")
+    for k in list(_tv_search_cache.keys()):
+        if norm in k:
+            _tv_search_cache.pop(k, None)
+    if _mem_audit_cache and "incomplete_series" in _mem_audit_cache:
+        _mem_audit_cache["incomplete_series"] = [
+            s for s in _mem_audit_cache.get("incomplete_series", [])
+            if norm not in s.get("canonical_key", "")
+        ]
+        _mem_audit_cache["incomplete_count"] = len(_mem_audit_cache["incomplete_series"])
+
+
+async def search_tmdb_tv(session: aiohttp.ClientSession, title: str, year: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    """Searches TMDB for a TV series by title and optional release year. Cached in memory."""
+    # Extract release year if embedded in title and not provided
+    if not year:
+        m_yr = re.search(r"\b(19\d{2}|20\d{2})\b", title)
+        if m_yr:
+            year = int(m_yr.group(1))
+
+    clean_title = re.sub(r"\b(19\d{2}|20\d{2})\b", "", title).strip()
+    clean_title = re.sub(r"[\(\)\[\]]", " ", clean_title).strip()
+    clean_title = re.sub(r"^(?:the\s+)?(?:end|finale|final)\s+", "", clean_title, flags=re.IGNORECASE).strip()
     clean_title = re.sub(r"[\s\.\-_]+(?:the\s+)?(?:end|finale|final)$", "", clean_title, flags=re.IGNORECASE).strip()
+    clean_title = re.sub(r"\s+", " ", clean_title).strip()
 
     norm_key = re.sub(r"[^a-z0-9]+", " ", clean_title.lower()).strip()
     if not norm_key:
         return None
 
-    if norm_key in _tv_search_cache:
-        return _tv_search_cache[norm_key]
+    cache_key = f"{norm_key}_{year}" if year else norm_key
+    if cache_key in _tv_search_cache:
+        return _tv_search_cache[cache_key]
 
     api_key = getattr(config, "TMDB_API_KEY", "")
     if not api_key:
         return None
 
-    # Step 1: Search with full clean_title (e.g. "Archive 81")
+    def rank_tv_results(results: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not results:
+            return None
+
+        def score(res):
+            pts = 0.0
+            r_name = re.sub(r"[^a-z0-9]+", " ", (res.get("name") or "").lower()).strip()
+            r_orig = re.sub(r"[^a-z0-9]+", " ", (res.get("original_name") or "").lower()).strip()
+            air_year = (res.get("first_air_date") or "")[:4]
+
+            # Title matching
+            if r_name == norm_key or r_orig == norm_key:
+                pts += 100.0
+            elif norm_key in r_name or r_name in norm_key:
+                pts += 50.0
+
+            # Year matching
+            if year:
+                if air_year == str(year):
+                    pts += 120.0
+                elif air_year:
+                    # Penalize wrong air year
+                    pts -= 40.0
+
+            # Popularity bonus
+            try:
+                pop = float(res.get("popularity") or 0.0)
+                pts += min(pop / 5.0, 25.0)
+            except Exception:
+                pass
+
+            # Explicit Netflix Archive 81 priority (TMDB ID 126947)
+            if norm_key == "archive 81" and res.get("id") == 126947:
+                pts += 300.0
+
+            return pts
+
+        sorted_results = sorted(results, key=score, reverse=True)
+        return sorted_results[0]
+
+    # Step 1: Query TMDB with first_air_date_year if known
     url = f"https://api.themoviedb.org/3/search/tv?api_key={api_key}&query={urllib.parse.quote(clean_title)}"
+    if year:
+        url += f"&first_air_date_year={year}"
+
     try:
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
             if resp.status == 200:
                 data = await resp.json()
                 results = data.get("results", [])
-                if results:
-                    for res in results:
-                        res_name = re.sub(r"[^a-z0-9]+", " ", (res.get("name") or "").lower()).strip()
-                        if res_name == norm_key or res_name in norm_key or norm_key in res_name:
-                            _tv_search_cache[norm_key] = res
-                            return res
-                    best = results[0]
-                    _tv_search_cache[norm_key] = best
+                best = rank_tv_results(results)
+                if best:
+                    _tv_search_cache[cache_key] = best
                     return best
 
-        # Step 2: Fallback without trailing single digit (e.g. "Embrace In The Dark Night 1" -> "Embrace In The Dark Night")
+        # Step 2: Fallback query without year filter (if year was specified but TMDB returned 0)
+        if year:
+            url_no_yr = f"https://api.themoviedb.org/3/search/tv?api_key={api_key}&query={urllib.parse.quote(clean_title)}"
+            async with session.get(url_no_yr, timeout=aiohttp.ClientTimeout(total=8)) as fb_resp:
+                if fb_resp.status == 200:
+                    fb_data = await fb_resp.json()
+                    fb_results = fb_data.get("results", [])
+                    best = rank_tv_results(fb_results)
+                    if best:
+                        _tv_search_cache[cache_key] = best
+                        return best
+
+        # Step 3: Fallback without trailing single digit (e.g. "Embrace In The Dark Night 1" -> "Embrace In The Dark Night")
         stripped_title = re.sub(r"[\s\.\-_]+[0-9]$", "", clean_title).strip()
         if stripped_title and stripped_title != clean_title:
             fallback_url = f"https://api.themoviedb.org/3/search/tv?api_key={api_key}&query={urllib.parse.quote(stripped_title)}"
@@ -199,12 +278,12 @@ async def search_tmdb_tv(session: aiohttp.ClientSession, title: str) -> Optional
                 if fb_resp.status == 200:
                     fb_data = await fb_resp.json()
                     fb_results = fb_data.get("results", [])
-                    if fb_results:
-                        best = fb_results[0]
-                        _tv_search_cache[norm_key] = best
+                    best = rank_tv_results(fb_results)
+                    if best:
+                        _tv_search_cache[cache_key] = best
                         return best
 
-        # Step 3: Fallback without punctuation / simplified
+        # Step 4: Fallback without punctuation / simplified
         simple_title = re.sub(r"['’`]", "", clean_title)
         if simple_title != clean_title:
             fallback_url = f"https://api.themoviedb.org/3/search/tv?api_key={api_key}&query={urllib.parse.quote(simple_title)}"
@@ -212,14 +291,14 @@ async def search_tmdb_tv(session: aiohttp.ClientSession, title: str) -> Optional
                 if fb_resp.status == 200:
                     fb_data = await fb_resp.json()
                     fb_results = fb_data.get("results", [])
-                    if fb_results:
-                        best = fb_results[0]
-                        _tv_search_cache[norm_key] = best
+                    best = rank_tv_results(fb_results)
+                    if best:
+                        _tv_search_cache[cache_key] = best
                         return best
     except Exception as e:
         logger.warning(f"TMDB TV search error for '{clean_title}': {e}")
 
-    _tv_search_cache[norm_key] = None
+    _tv_search_cache[cache_key] = None
     return None
 
 
@@ -320,6 +399,9 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
         for it in items:
             if it.get("is_series") and it.get("series_title"):
                 raw_title = str(it["series_title"]).strip()
+                item_year = it.get("year")
+                tmdb_id = it.get("tmdb_id")
+
                 # Clean title of End / Finale
                 clean_title = re.sub(r"^(?:the\s+)?(?:end|finale|final)\s+", "", raw_title, flags=re.IGNORECASE).strip()
                 clean_title = re.sub(r"[\s\.\-_]+(?:the\s+)?(?:end|finale|final)$", "", clean_title, flags=re.IGNORECASE).strip()
@@ -331,14 +413,24 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
                 if not k:
                     continue
 
+                if item_year:
+                    k = f"{k}_{item_year}"
+
                 if k not in series_groups:
                     series_groups[k] = {
                         "canonical_key": k,
                         "title": clean_title,
+                        "year": item_year,
+                        "tmdb_id": tmdb_id,
                         "category": it.get("category", "series"),
                         "seasons": {},  # season_num -> list of episodes
                         "total_uploaded": 0,
                     }
+                else:
+                    if item_year and not series_groups[k].get("year"):
+                        series_groups[k]["year"] = item_year
+                    if tmdb_id and not series_groups[k].get("tmdb_id"):
+                        series_groups[k]["tmdb_id"] = tmdb_id
 
                 s_num = int(it.get("season") or 1)
                 e_num = int(it.get("episode") or 1)
@@ -365,11 +457,12 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
         async with aiohttp.ClientSession() as session:
             for idx, (k, group) in enumerate(series_groups.items(), start=1):
                 title = group["title"]
+                year = group.get("year")
                 category = group["category"]
                 total_uploaded = group["total_uploaded"]
 
                 _audit_status["current_index"] = idx
-                _audit_status["current_title"] = title
+                _audit_status["current_title"] = f"{title} ({year})" if year else title
                 _audit_status["incomplete_count"] = len(incomplete_list)
 
                 # Skip if entire series was marked complete by admin
@@ -404,11 +497,11 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
                 tmdb_data = None
                 tmdb_id = None
                 expected_by_season = {}
+                tmdb_res = None
 
                 if api_key and force_tmdb:
-                    tmdb_res = await search_tmdb_tv(session, title)
-                    if tmdb_res:
-                        tmdb_id = tmdb_res.get("id")
+                    if group.get("tmdb_id"):
+                        tmdb_id = int(group["tmdb_id"])
                         details = await get_tmdb_tv_details(session, tmdb_id)
                         if details and "seasons" in details:
                             tmdb_data = details
@@ -416,6 +509,17 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
                                 s_no = s.get("season_number", 0)
                                 if s_no > 0:  # Ignore specials (season 0)
                                     expected_by_season[s_no] = s.get("episode_count", 0)
+                    else:
+                        tmdb_res = await search_tmdb_tv(session, title, year=year)
+                        if tmdb_res:
+                            tmdb_id = tmdb_res.get("id")
+                            details = await get_tmdb_tv_details(session, tmdb_id)
+                            if details and "seasons" in details:
+                                tmdb_data = details
+                                for s in details["seasons"]:
+                                    s_no = s.get("season_number", 0)
+                                    if s_no > 0:  # Ignore specials (season 0)
+                                        expected_by_season[s_no] = s.get("episode_count", 0)
                     # Breathing pause: 200ms between TMDB queries to be polite to TMDB API limits
                     await asyncio.sleep(0.2)
 
@@ -490,6 +594,7 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
                     incomplete_list.append({
                         "canonical_key": k,
                         "title": title,
+                        "year": year,
                         "category": category,
                         "total_uploaded": total_uploaded,
                         "reasons": reasons,

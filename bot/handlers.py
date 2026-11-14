@@ -467,7 +467,7 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
         total_eps = len(ep_items)
 
         try:
-            await status_msg.edit_text(f"⏳ *Forwarding {total_eps} episodes in strict numerical order to storage channel...*")
+            await status_msg.edit_text(f"⏳ **Batch Processing Started:**\n📦 Sorting {total_eps} episodes in strict numerical order...")
         except Exception:
             pass
 
@@ -505,17 +505,26 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
                     "file_name": ep_item["file_name"],
                 })
 
-                # Throttled live progress update (max once every 3s) so Telegram never rate-limits
+                # Throttled live progress update showing exact progress bar and remaining count
                 now = time.time()
-                if (now - last_status_edit >= 3.0) or idx == total_eps:
+                if (now - last_status_edit >= 1.5) or idx == total_eps:
                     try:
-                        await status_msg.edit_text(f"⏳ *Storing & indexing: {idx} / {total_eps} episodes in storage channel...*")
+                        percent = int((idx / total_eps) * 100)
+                        bar_filled = percent // 10
+                        bar = "█" * bar_filled + "░" * (10 - bar_filled)
+                        remaining = total_eps - idx
+                        await status_msg.edit_text(
+                            f"⏳ **Storing & Indexing Episodes**\n\n"
+                            f"📊 Progress: **{idx} / {total_eps}** ({remaining} remaining)\n"
+                            f"`[{bar}] {percent}%`\n\n"
+                            f"📁 Current: `{ep_item['file_name']}`"
+                        )
                         last_status_edit = now
                     except Exception:
                         pass
 
                 # Pause to guarantee Telegram timestamp order in channel and respect rate limits
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.4)
             except Exception as e:
                 logger.error(f"Error forwarding episode {idx}: {e}")
 
@@ -1123,31 +1132,31 @@ def register_handlers(app: Client):
 
                 now = time.time()
                 last_edit = _batch_buffers[user_id].get("last_status_edit", 0.0)
-                if count == 1 or (now - last_edit >= 3.0) or (count % 10 == 0):
+                if count == 1 or (now - last_edit >= 1.2) or (count % 2 == 0):
                     _batch_buffers[user_id]["last_status_edit"] = now
                     try:
                         if count > 1:
                             await status_msg.edit_text(
                                 f"📥 **Batch Buffer: {count} episodes collected!**\n\n"
-                                f"💡 *Keep forwarding files (50 to 100+ files supported).*\n\n"
-                                f"When finished sending all files, tap below or wait 25s:",
+                                f"💡 *Keep forwarding files (50 to 100+ files supported).*\n"
+                                f"⏳ Auto-processing will begin 12s after last file arrives...",
                                 reply_markup=btn
                             )
                         else:
                             await status_msg.edit_text(
-                                f"⏳ *Received 1 file... Forwarding more episodes?*\n"
-                                f"Send the rest now, or tap below to process:",
+                                f"📥 **Batch Buffer: 1 episode collected!**\n\n"
+                                f"💡 *Forward more episodes, or tap below to process now:*",
                                 reply_markup=btn
                             )
                     except Exception:
                         pass
 
-                # Debounce timer: wait 25.0 seconds after last forwarded message arrives to capture large multi-part batches
+                # Debounce timer: wait 12.0 seconds after last forwarded message arrives
                 if _batch_buffers[user_id]["task"]:
                     _batch_buffers[user_id]["task"].cancel()
 
                 async def delayed_flush():
-                    await asyncio.sleep(25.0)
+                    await asyncio.sleep(12.0)
                     await flush_batch(client, user_id)
 
                 _batch_buffers[user_id]["task"] = asyncio.create_task(delayed_flush())

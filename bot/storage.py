@@ -143,40 +143,78 @@ def update_tracked_category(message_ids: List[int], category: str):
 
 
 def update_tracked_metadata(message_id: int, updates: dict):
-    """Updates metadata (title, season, episode, is_series, category) for a message ID in the local ledger."""
+    """Updates metadata (title, year, season, episode, is_series, category, tmdb_id) for a message ID in the local ledger.
+    Supports bulk-updating all episodes in a series when apply_all_series is True."""
     _ensure_storage()
     try:
-        from server.parser import build_golden_filename
+        from server.parser import build_golden_filename, safe_int
         with open(STORAGE_FILE, "r", encoding="utf-8") as f:
             records = json.load(f)
 
+        target_r = next((r for r in records if r.get("message_id") == message_id), None)
+        if not target_r:
+            return
+
+        target_parsed = target_r.get("parsed") or {}
+        old_series_title = (target_parsed.get("title") or target_r.get("series_title") or "").strip().lower()
+        apply_all = bool(updates.get("apply_all_series"))
+
+        updated_count = 0
         for r in records:
-            if r.get("message_id") == message_id:
-                parsed = r.get("parsed") or {}
+            p = r.get("parsed") or {}
+            is_match = (r.get("message_id") == message_id)
+            if not is_match and apply_all and old_series_title:
+                r_title = (p.get("title") or r.get("series_title") or "").strip().lower()
+                if r_title == old_series_title and (p.get("is_series") or r.get("is_series")):
+                    is_match = True
+
+            if is_match:
+                updated_count += 1
                 if "title" in updates and updates["title"]:
-                    parsed["title"] = str(updates["title"]).strip()
+                    new_t = str(updates["title"]).strip()
+                    p["title"] = new_t
+                    r["title"] = new_t
+                if "year" in updates:
+                    y = safe_int(updates["year"])
+                    p["year"] = y
+                    r["year"] = y
+                if "tmdb_id" in updates:
+                    t_id = safe_int(updates["tmdb_id"])
+                    p["tmdb_id"] = t_id
+                    r["tmdb_id"] = t_id
                 if "is_series" in updates:
                     is_s = bool(updates["is_series"])
-                    parsed["is_series"] = is_s
+                    p["is_series"] = is_s
                     r["is_series"] = is_s
-                if "season" in updates and updates["season"] is not None:
-                    parsed["season"] = int(updates["season"])
-                if "episode" in updates and updates["episode"] is not None:
-                    parsed["episode"] = int(updates["episode"])
+                if not apply_all:
+                    if "season" in updates and updates["season"] is not None:
+                        p["season"] = safe_int(updates["season"], default=1)
+                    if "episode" in updates and updates["episode"] is not None:
+                        p["episode"] = safe_int(updates["episode"], default=1)
                 if "category" in updates and updates["category"]:
                     cat = str(updates["category"]).strip().lower()
                     r["category"] = cat
-                    parsed["category"] = cat
+                    p["category"] = cat
 
                 orig_fn = r.get("original_filename") or r.get("file_name", "")
-                golden = build_golden_filename(parsed, orig_fn)
-                parsed["golden_name"] = golden
+                golden = build_golden_filename(p, orig_fn)
+                p["golden_name"] = golden
                 r["file_name"] = golden
-                r["parsed"] = parsed
-                break
+                r["parsed"] = p
 
         with open(STORAGE_FILE, "w", encoding="utf-8") as f:
             json.dump(records, f, indent=2, ensure_ascii=False)
+
+        logger.info(f"Updated metadata for {updated_count} record(s) (apply_all={apply_all}).")
+
+        # Invalidate in-memory audit cache for this show
+        try:
+            from server.tmdb_auditor import invalidate_series_audit
+            invalidate_series_audit(old_series_title)
+            if updates.get("title"):
+                invalidate_series_audit(updates["title"])
+        except Exception:
+            pass
     except Exception as e:
         logger.error(f"Failed to update tracked media metadata: {e}")
 

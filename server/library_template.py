@@ -660,7 +660,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
     }
     .folder-title-wrap {
       flex: 1;
-      min-width: 0;
+      min-width: 140px;
       display: flex;
       flex-direction: column;
       gap: 3px;
@@ -676,7 +676,34 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       font-weight: 700;
       color: #fff;
       line-height: 1.3;
-      word-break: break-word;
+      word-break: normal;
+      overflow-wrap: break-word;
+    }
+    .badge-year {
+      font-size: 0.82rem;
+      color: #94a3b8;
+      font-weight: 600;
+      margin-left: 4px;
+    }
+    .btn-rename-series {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: 7px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      user-select: none;
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      background: rgba(99, 102, 241, 0.15);
+      color: #a5b4fc;
+    }
+    .btn-rename-series:hover {
+      background: rgba(99, 102, 241, 0.3);
+      color: #fff;
+      transform: translateY(-1px);
     }
     .status-badge {
       display: inline-block;
@@ -685,6 +712,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       padding: 2px 7px;
       border-radius: 6px;
       white-space: nowrap;
+      flex-shrink: 0;
     }
     .badge-incomplete {
       background: rgba(239, 68, 68, 0.22);
@@ -1431,6 +1459,17 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         <input type="text" id="editTitle" class="auth-input" style="width:100%; box-sizing:border-box; margin:0;" placeholder="e.g. Friends">
       </div>
 
+      <div style="display:flex; gap:10px; margin-bottom:10px;">
+        <div style="flex:1;">
+          <label style="font-size:0.75rem; color:#a5b4fc; font-weight:600; display:block; margin-bottom:4px;">Release Year</label>
+          <input type="number" id="editYear" class="auth-input" style="width:100%; box-sizing:border-box; margin:0;" placeholder="e.g. 2026" min="1900" max="2099">
+        </div>
+        <div style="flex:1;">
+          <label style="font-size:0.75rem; color:#a5b4fc; font-weight:600; display:block; margin-bottom:4px;">TMDB ID (Optional)</label>
+          <input type="number" id="editTmdbId" class="auth-input" style="width:100%; box-sizing:border-box; margin:0;" placeholder="e.g. 126947" min="1">
+        </div>
+      </div>
+
       <div style="margin-bottom:10px;">
         <label style="font-size:0.75rem; color:#a5b4fc; font-weight:600; display:block; margin-bottom:4px;">Type</label>
         <select id="editIsSeries" class="auth-input" style="width:100%; box-sizing:border-box; margin:0; background:#12141d; color:#fff;" onchange="toggleEditSeriesFields()">
@@ -1448,6 +1487,11 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           <label style="font-size:0.75rem; color:#a5b4fc; font-weight:600; display:block; margin-bottom:4px;">Episode #</label>
           <input type="number" id="editEpisode" class="auth-input" style="width:100%; box-sizing:border-box; margin:0;" placeholder="16" min="1">
         </div>
+      </div>
+
+      <div id="editApplyAllContainer" style="margin-bottom:10px; background:rgba(99,102,241,0.12); border:1px solid rgba(99,102,241,0.3); border-radius:8px; padding:8px 10px; display:flex; align-items:center; gap:8px;">
+        <input type="checkbox" id="editApplyAll" style="width:16px; height:16px; accent-color:#6366f1; cursor:pointer;">
+        <label for="editApplyAll" style="font-size:0.78rem; color:#e0e7ff; cursor:pointer; font-weight:600;">Apply Title, Year & Hub to ALL episodes in this series</label>
       </div>
 
       <div style="margin-bottom:14px;">
@@ -2361,10 +2405,42 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
 
       document.getElementById('editMid').value = messageId;
       document.getElementById('editTitle').value = item.series_title || item.display_name || item.file_name || '';
+      document.getElementById('editYear').value = item.year || '';
+      document.getElementById('editTmdbId').value = item.tmdb_id || '';
       document.getElementById('editIsSeries').value = item.is_series ? "true" : "false";
       document.getElementById('editSeason').value = item.season || 1;
       document.getElementById('editEpisode').value = item.episode || 1;
       document.getElementById('editCategory').value = item.category || (item.is_series ? 'series' : 'movies');
+
+      const applyAllBox = document.getElementById('editApplyAll');
+      const applyAllContainer = document.getElementById('editApplyAllContainer');
+      if (item.is_series) {
+        applyAllContainer.style.display = 'flex';
+        applyAllBox.checked = false;
+      } else {
+        applyAllContainer.style.display = 'none';
+        applyAllBox.checked = false;
+      }
+
+      toggleEditSeriesFields();
+      document.getElementById('editModal').style.display = 'flex';
+    }
+
+    function openEditModalForSeries(event, firstMid, seriesTitle, year, category) {
+      if (event) event.stopPropagation();
+      document.getElementById('editMid').value = firstMid;
+      document.getElementById('editTitle').value = seriesTitle || '';
+      document.getElementById('editYear').value = (year && year !== 'null') ? year : '';
+      document.getElementById('editTmdbId').value = '';
+      document.getElementById('editIsSeries').value = "true";
+      document.getElementById('editSeason').value = 1;
+      document.getElementById('editEpisode').value = 1;
+      document.getElementById('editCategory').value = category || 'series';
+
+      const applyAllBox = document.getElementById('editApplyAll');
+      const applyAllContainer = document.getElementById('editApplyAllContainer');
+      applyAllContainer.style.display = 'flex';
+      applyAllBox.checked = true;
 
       toggleEditSeriesFields();
       document.getElementById('editModal').style.display = 'flex';
@@ -2372,7 +2448,8 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
 
     function toggleEditSeriesFields() {
       const isSeries = document.getElementById('editIsSeries').value === "true";
-      document.getElementById('editSeriesFields').style.display = isSeries ? 'flex' : 'none';
+      const applyAll = document.getElementById('editApplyAll')?.checked;
+      document.getElementById('editSeriesFields').style.display = (isSeries && !applyAll) ? 'flex' : 'none';
       if (!isSeries && document.getElementById('editCategory').value === 'series') {
         document.getElementById('editCategory').value = 'movies';
       }
@@ -2385,10 +2462,15 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
     async function submitEditMedia() {
       const mid = parseInt(document.getElementById('editMid').value);
       const title = document.getElementById('editTitle').value.trim();
+      const rawYear = document.getElementById('editYear').value.trim();
+      const year = rawYear ? parseInt(rawYear) : null;
+      const rawTmdb = document.getElementById('editTmdbId').value.trim();
+      const tmdbId = rawTmdb ? parseInt(rawTmdb) : null;
       const isSeries = document.getElementById('editIsSeries').value === "true";
       const season = parseInt(document.getElementById('editSeason').value) || 1;
       const episode = parseInt(document.getElementById('editEpisode').value) || 1;
       const category = document.getElementById('editCategory').value;
+      const applyAllSeries = Boolean(document.getElementById('editApplyAll')?.checked);
 
       if (!mid || !title) {
         alert("Please enter a valid title.");
@@ -2405,17 +2487,20 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           body: JSON.stringify({
             message_id: mid,
             title: title,
+            year: year,
+            tmdb_id: tmdbId,
             is_series: isSeries,
             season: isSeries ? season : null,
             episode: isSeries ? episode : null,
-            category: category
+            category: category,
+            apply_all_series: applyAllSeries
           })
         });
 
         const data = await res.json();
         if (data.success) {
-          showToast("✨ Media updated successfully!");
-          await loadMedia();
+          showToast(applyAllSeries ? "✨ All episodes in series updated!" : "✨ Media updated successfully!");
+          await loadMedia(true);
         } else {
           alert("Error updating media: " + (data.error || "Unknown error"));
         }
@@ -2483,6 +2568,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
             matchGroup = {
               canonicalKey: normKey,
               title: getCleanFolderTitle(rawTitle),
+              year: item.year || null,
               category: item.category || (item.is_series ? 'series' : 'movies'),
               firstMid: item.message_id,
               seasons: {},
@@ -2496,6 +2582,9 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
             }
             seriesGroupList.push(matchGroup);
           } else {
+            if (item.year && !matchGroup.year) {
+              matchGroup.year = item.year;
+            }
             const candidate = getCleanFolderTitle(rawTitle);
             const hasThe = candidate.toLowerCase().startsWith('the ') && !matchGroup.title.toLowerCase().startsWith('the ');
             if (hasThe || (!matchGroup.title.toLowerCase().startsWith('the ') && candidate.length < matchGroup.title.length && candidate.length >= 4)) {
@@ -2575,7 +2664,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
               <div class="folder-icon">${auditInfo ? '⚠️' : '📺'}</div>
               <div class="folder-title-wrap">
                 <div class="folder-name-row">
-                  <span class="folder-title-text" title="${escapeHtml(group.title)}">${escapeHtml(group.title)}</span>
+                  <span class="folder-title-text" title="${escapeHtml(group.title)}">${escapeHtml(group.title)}${group.year ? ` <span class="badge-year">(${group.year})</span>` : ''}</span>
                   <span class="status-badge ${auditInfo ? 'badge-incomplete' : 'badge-complete'}">
                     ${auditInfo ? 'Incomplete' : 'Complete'}
                   </span>
@@ -2598,6 +2687,9 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
                 <span class="badge-quality">${escapeHtml(group.quality || 'HD')}</span>
               </div>
               <div class="folder-actions-right">
+                <button onclick="openEditModalForSeries(event, ${group.firstMid}, '${escapeHtml(group.title).replace(/'/g, "\\'")}', ${group.year || 'null'}, '${group.category}')" class="btn-rename-series" title="Rename entire series & update year">
+                  ✏️ Rename
+                </button>
                 <button onclick="toggleSeriesComplete(event, '${group.canonicalKey}')" class="btn-complete-toggle ${isSeriesComplete ? 'is-complete' : ''}" title="${isSeriesComplete ? 'Series marked Complete by Admin. Tap to toggle.' : 'Tap to mark entire Series as Complete'}">
                   ${isSeriesComplete ? '✅ Complete' : 'Mark Complete'}
                 </button>
