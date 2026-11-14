@@ -41,6 +41,36 @@ async def safe_copy_message(raw_msg: Message, target_channel_id, status_msg: Mes
             await asyncio.sleep(1.5)
     raise RuntimeError("Failed to copy message after maximum retries.")
 
+async def safe_update_status(client: Client, chat_id: int, current_status_msg: Message, text: str, reply_markup=None) -> Message:
+    """
+    Edits status message safely with automatic FloodWait recovery.
+    If editing is rate-limited (FloodWait), it automatically abandons editing the frozen message
+    and spawns a fresh message so progress and stream links are never lost or frozen!
+    """
+    if not current_status_msg:
+        try:
+            return await client.send_message(chat_id, text, reply_markup=reply_markup, disable_web_page_preview=True)
+        except Exception:
+            return None
+
+    try:
+        await current_status_msg.edit_text(text, reply_markup=reply_markup, disable_web_page_preview=True)
+        return current_status_msg
+    except FloodWait as fw:
+        logger.warning(f"[FloodWait] Telegram rate limit hit on edit_text ({fw.value}s). Spawning fresh status message.")
+        try:
+            new_msg = await client.send_message(chat_id, text, reply_markup=reply_markup, disable_web_page_preview=True)
+            return new_msg
+        except Exception as e:
+            logger.debug(f"Could not send fresh status message on FloodWait: {e}")
+            return current_status_msg
+    except Exception as e:
+        try:
+            new_msg = await client.send_message(chat_id, text, reply_markup=reply_markup, disable_web_page_preview=True)
+            return new_msg
+        except Exception:
+            return current_status_msg
+
 # In-memory batch buffers: user_id -> {"items": [...], "task": asyncio.Task, "status_msg": Message}
 _batch_buffers: dict[int, dict] = {}
 _batch_locks: dict[int, asyncio.Lock] = {}
@@ -268,12 +298,24 @@ async def process_movies_batch(client: Client, user_id: int, items: list, status
         movie_groups[key].append(item)
 
     total_files = len(items)
-    try:
-        await status_msg.edit_text(f"⏳ *Processing and storing {total_files} movie file(s)...*")
-    except Exception:
-        pass
+    last_status_edit = 0.0
+
+    refresh_btn = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄 Refresh / Check Status", callback_data="batch_refresh_now")],
+        [InlineKeyboardButton("❌ Cancel Batch", callback_data="batch_cancel_now")]
+    ])
+
+    status_msg = await safe_update_status(
+        client, user_id, status_msg,
+        f"⏳ **Processing & Storing {total_files} Movie File(s)...**\n\n"
+        f"📊 Progress: **0 / {total_files}**\n"
+        f"`[░░░░░░░░░░] 0%`",
+        reply_markup=refresh_btn
+    )
 
     quality_ranks = {"4k": 4, "2160p": 4, "1080p": 3, "720p": 2, "480p": 1, "360p": 0}
+    all_processed_movies = []
+    processed_count = 0
 
     for (movie_title, year), m_items in movie_groups.items():
         # Sort highest quality first (4K -> 1080p -> 720p)
@@ -285,6 +327,7 @@ async def process_movies_batch(client: Client, user_id: int, items: list, status
         processed_versions = []
         for it in m_items:
             raw_msg: Message = it["msg"]
+            processed_count += 1
             try:
                 forwarded = await safe_copy_message(
                     raw_msg,
@@ -307,45 +350,84 @@ async def process_movies_batch(client: Client, user_id: int, items: list, status
                     "stream_url": stream_url,
                     "token": token,
                 })
-                await asyncio.sleep(0.3)
+
+                # Throttled live progress update (at most every 3.5s or final file)
+                now = time.time()
+                if (now - last_status_edit >= 3.5) or processed_count == total_files:
+                    percent = int((processed_count / total_files) * 100)
+                    bar_filled = percent // 10
+                    bar = "█" * bar_filled + "░" * (10 - bar_filled)
+                    remaining = total_files - processed_count
+                    status_msg = await safe_update_status(
+                        client, user_id, status_msg,
+                        f"⏳ **Storing & Indexing Movies**\n\n"
+                        f"📊 Progress: **{processed_count} / {total_files}** ({remaining} remaining)\n"
+                        f"`[{bar}] {percent}%`\n\n"
+                        f"📁 Current: `{it['file_name']}`",
+                        reply_markup=refresh_btn
+                    )
+                    last_status_edit = now
+
+                await asyncio.sleep(0.4)
             except Exception as e:
                 logger.error(f"Error forwarding movie {it['file_name']}: {e}")
 
-        if not processed_versions:
-            continue
+        if processed_versions:
+            all_processed_movies.append({
+                "title": movie_title,
+                "year": year,
+                "versions": processed_versions
+            })
 
-        year_str = f" ({year})" if year else ""
-        top_version = processed_versions[0]
+    if not all_processed_movies:
+        await safe_update_status(client, user_id, status_msg, "⚠️ No movies were successfully indexed from this batch.")
+        return
+
+    # Render final result
+    if len(all_processed_movies) == 1:
+        entry = all_processed_movies[0]
+        year_str = f" ({entry['year']})" if entry['year'] else ""
+        top_version = entry["versions"][0]
         buttons = [
             [InlineKeyboardButton("▶️ Test Stream (Player)", url=top_version["stream_url"])],
             [InlineKeyboardButton("📱 View Library (Admin WebApp)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library?admin_key={config.ADMIN_SECRET}"))],
         ]
-
-        if len(processed_versions) > 1:
-            qual_tags = " • ".join([v["quality"] for v in processed_versions])
+        if len(entry["versions"]) > 1:
+            qual_tags = " • ".join([v["quality"] for v in entry["versions"]])
             text = (
-                f"🎬 **{movie_title}{year_str}**\n"
-                f"✨ **{len(processed_versions)} Qualities Available ({qual_tags})**\n\n"
+                f"🎬 **{entry['title']}{year_str}**\n"
+                f"✨ **{len(entry['versions'])} Qualities Available ({qual_tags})**\n\n"
                 f"📋 **Tap Code Box Below to Copy All Links (1-Tap Copy):**\n"
             )
-            code_lines = []
-            for v in processed_versions:
-                sz = f" ({v['file_size_str']})" if v.get("file_size_str") else ""
-                code_lines.append(f"{v['quality']}{sz}: {v['stream_url']}")
+            code_lines = [f"{v['quality']} ({v['file_size_str']}): {v['stream_url']}" for v in entry["versions"]]
             text += "```\n" + "\n".join(code_lines) + "\n```"
         else:
-            v = processed_versions[0]
+            v = entry["versions"][0]
             text = (
-                f"🎬 **{movie_title}{year_str} [{v['quality']}]**\n\n"
+                f"🎬 **{entry['title']}{year_str} [{v['quality']}]**\n\n"
                 f"📁 `{v['file_name']}` ({v['file_size_str']})\n\n"
                 f"🔗 **Stream Link (Player):**\n`{v['stream_url']}`\n\n"
                 f"🔑 **Token:**\n`{v['token']}`"
             )
+        await safe_update_status(client, user_id, status_msg, text, reply_markup=InlineKeyboardMarkup(buttons))
+    else:
+        # Multi-movie batch: Render unified 1-tap copy card listing all movies
+        buttons = [
+            [InlineKeyboardButton("📱 View Library (Admin WebApp)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library?admin_key={config.ADMIN_SECRET}"))],
+        ]
+        header = (
+            f"🎬 **Batch Movie Processing Complete!**\n"
+            f"⚡ **{len(all_processed_movies)} Movie(s) Indexed & Stored Successfully!**\n\n"
+            f"📋 **Tap Code Box Below to Copy All Links (1-Tap Copy):**\n"
+        )
+        code_lines = []
+        for entry in all_processed_movies:
+            year_str = f" ({entry['year']})" if entry['year'] else ""
+            for v in entry["versions"]:
+                code_lines.append(f"{entry['title']}{year_str} [{v['quality']}]: {v['stream_url']}")
 
-        try:
-            await status_msg.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
-        except Exception:
-            await client.send_message(user_id, text, reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
+        text = f"{header}```{chr(10).join(code_lines)}```"
+        await safe_update_status(client, user_id, status_msg, text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 def harmonize_batch_missing_episodes(items: list):
@@ -466,10 +548,16 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
         ep_items.sort(key=lambda x: (x["parsed"]["episode"] or 0, x["file_name"]))
         total_eps = len(ep_items)
 
-        try:
-            await status_msg.edit_text(f"⏳ **Batch Processing Started:**\n📦 Sorting {total_eps} episodes in strict numerical order...")
-        except Exception:
-            pass
+        refresh_btn = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 Refresh / Check Status", callback_data="batch_refresh_now")],
+            [InlineKeyboardButton("❌ Cancel Batch", callback_data="batch_cancel_now")]
+        ])
+
+        status_msg = await safe_update_status(
+            client, user_id, status_msg,
+            f"⏳ **Batch Processing Started:**\n📦 Sorting {total_eps} episodes in strict numerical order...",
+            reply_markup=refresh_btn
+        )
 
         processed_links = []
         last_status_edit = 0.0
@@ -505,23 +593,22 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
                     "file_name": ep_item["file_name"],
                 })
 
-                # Throttled live progress update showing exact progress bar and remaining count
+                # Throttled live progress update (at most every 3.5s or final episode)
                 now = time.time()
-                if (now - last_status_edit >= 1.5) or idx == total_eps:
-                    try:
-                        percent = int((idx / total_eps) * 100)
-                        bar_filled = percent // 10
-                        bar = "█" * bar_filled + "░" * (10 - bar_filled)
-                        remaining = total_eps - idx
-                        await status_msg.edit_text(
-                            f"⏳ **Storing & Indexing Episodes**\n\n"
-                            f"📊 Progress: **{idx} / {total_eps}** ({remaining} remaining)\n"
-                            f"`[{bar}] {percent}%`\n\n"
-                            f"📁 Current: `{ep_item['file_name']}`"
-                        )
-                        last_status_edit = now
-                    except Exception:
-                        pass
+                if (now - last_status_edit >= 3.5) or idx == total_eps:
+                    percent = int((idx / total_eps) * 100)
+                    bar_filled = percent // 10
+                    bar = "█" * bar_filled + "░" * (10 - bar_filled)
+                    remaining = total_eps - idx
+                    status_msg = await safe_update_status(
+                        client, user_id, status_msg,
+                        f"⏳ **Storing & Indexing Episodes**\n\n"
+                        f"📊 Progress: **{idx} / {total_eps}** ({remaining} remaining)\n"
+                        f"`[{bar}] {percent}%`\n\n"
+                        f"📁 Current: `{ep_item['file_name']}`",
+                        reply_markup=refresh_btn
+                    )
+                    last_status_edit = now
 
                 # Pause to guarantee Telegram timestamp order in channel and respect rate limits
                 await asyncio.sleep(0.4)
@@ -592,18 +679,35 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
             body_text = f"{header}```{code_block}```"
 
             reply_markup = InlineKeyboardMarkup(buttons) if c_idx == 0 else None
-            try:
-                if c_idx == 0:
-                    await status_msg.edit_text(body_text, reply_markup=reply_markup, disable_web_page_preview=True)
-                else:
-                    await client.send_message(user_id, body_text, disable_web_page_preview=True)
-            except Exception as send_err:
-                logger.warning(f"Status message edit failed ({send_err}), sending as fresh message.")
-                await client.send_message(user_id, body_text, reply_markup=reply_markup, disable_web_page_preview=True)
+            status_msg = await safe_update_status(client, user_id, status_msg, body_text, reply_markup=reply_markup)
 
 
 def register_handlers(app: Client):
     """Registers all Telegram bot command and message handlers."""
+
+    # Start background queue heartbeat watchdog so batches never stall or freeze
+    async def batch_watchdog():
+        while True:
+            try:
+                await asyncio.sleep(8.0)
+                now = time.time()
+                for uid, buf in list(_batch_buffers.items()):
+                    last_rcv = buf.get("last_received_time", 0.0)
+                    items = buf.get("items", [])
+                    if items and (now - last_rcv >= 15.0):
+                        proc_lock = get_processing_lock(uid)
+                        if not proc_lock.locked():
+                            logger.info(f"[Watchdog] Auto-flushing idle batch for user {uid} ({len(items)} items)")
+                            asyncio.create_task(flush_batch(app, uid))
+            except asyncio.CancelledError:
+                break
+            except Exception as w_err:
+                logger.debug(f"Watchdog notice: {w_err}")
+
+    try:
+        asyncio.create_task(batch_watchdog())
+    except Exception:
+        pass
 
     @app.on_message(filters.command(["start", "menu"]) & filters.private)
     async def start_handler(client: Client, message: Message):
@@ -1016,8 +1120,34 @@ def register_handlers(app: Client):
             if user_id in _batch_buffers and _batch_buffers[user_id].get("task"):
                 _batch_buffers[user_id]["task"].cancel()
 
-        await query.answer("⚡ Processing all collected episodes now!")
+        await query.answer("⚡ Processing all collected items now!")
         await flush_batch(client, user_id)
+
+    @app.on_callback_query(filters.regex("batch_refresh_now"))
+    async def batch_refresh_now_callback(client: Client, query: CallbackQuery):
+        """Forces an instant refresh, check, or resume of the batch queue."""
+        user_id = query.from_user.id
+        if not is_authorized(user_id):
+            await query.answer("⛔ Access Denied.", show_alert=True)
+            return
+
+        lock = get_user_lock(user_id)
+        async with lock:
+            if user_id in _batch_buffers:
+                buf = _batch_buffers[user_id]
+                items_count = len(buf.get("items", []))
+                if buf.get("task"):
+                    buf["task"].cancel()
+                await query.answer(f"🔄 Resuming batch ({items_count} files pending)...", show_alert=False)
+                asyncio.create_task(flush_batch(client, user_id))
+                return
+
+        proc_lock = get_processing_lock(user_id)
+        if proc_lock.locked():
+            await query.answer("⏳ Worker is actively processing your files. Progress will update shortly!", show_alert=True)
+            return
+
+        await query.answer("✅ Queue is currently clear. Forward files to start a new batch!", show_alert=True)
 
     @app.on_callback_query(filters.regex("batch_cancel_now"))
     async def batch_cancel_now_callback(client: Client, query: CallbackQuery):
@@ -1099,11 +1229,12 @@ def register_handlers(app: Client):
         async with lock:
             # Initialize or retrieve user's batch buffer
             if user_id not in _batch_buffers:
-                status_msg = await message.reply_text("⏳ *Receiving and preparing episodes...*", quote=True)
+                status_msg = await message.reply_text("⏳ *Receiving and preparing files...*", quote=True)
                 _batch_buffers[user_id] = {
                     "items": [],
                     "task": None,
                     "status_msg": status_msg,
+                    "last_received_time": time.time(),
                 }
             else:
                 status_msg = _batch_buffers[user_id]["status_msg"]
@@ -1123,33 +1254,38 @@ def register_handlers(app: Client):
                 }
 
                 _batch_buffers[user_id]["items"].append(item_data)
+                _batch_buffers[user_id]["last_received_time"] = time.time()
                 count = len(_batch_buffers[user_id]["items"])
 
                 btn = InlineKeyboardMarkup([
-                    [InlineKeyboardButton(f"⚡ Finish & Process All {count} Episodes Now", callback_data="batch_flush_now")],
+                    [
+                        InlineKeyboardButton(f"⚡ Process All ({count}) Now", callback_data="batch_flush_now"),
+                        InlineKeyboardButton("🔄 Refresh Queue", callback_data="batch_refresh_now"),
+                    ],
                     [InlineKeyboardButton("❌ Cancel Batch", callback_data="batch_cancel_now")],
                 ])
 
                 now = time.time()
                 last_edit = _batch_buffers[user_id].get("last_status_edit", 0.0)
-                if count == 1 or (now - last_edit >= 1.2) or (count % 2 == 0):
+                # Throttled status updates (at most every 3.5s or on key milestones to prevent Telegram edit limits)
+                if count == 1 or (now - last_edit >= 3.5) or (count % 5 == 0):
                     _batch_buffers[user_id]["last_status_edit"] = now
-                    try:
-                        if count > 1:
-                            await status_msg.edit_text(
-                                f"📥 **Batch Buffer: {count} episodes collected!**\n\n"
-                                f"💡 *Keep forwarding files (50 to 100+ files supported).*\n"
-                                f"⏳ Auto-processing will begin 12s after last file arrives...",
-                                reply_markup=btn
-                            )
-                        else:
-                            await status_msg.edit_text(
-                                f"📥 **Batch Buffer: 1 episode collected!**\n\n"
-                                f"💡 *Forward more episodes, or tap below to process now:*",
-                                reply_markup=btn
-                            )
-                    except Exception:
-                        pass
+                    if count > 1:
+                        status_text = (
+                            f"📥 **Batch Buffer: {count} files collected!**\n\n"
+                            f"💡 *Keep forwarding files (movies or series supported).*\n"
+                            f"⏳ Auto-processing will begin 12s after last file arrives..."
+                        )
+                    else:
+                        status_text = (
+                            f"📥 **Batch Buffer: 1 file collected!**\n\n"
+                            f"📁 `{file_name}`\n\n"
+                            f"💡 *Forward more files, or tap below to process now:*"
+                        )
+                    new_status = await safe_update_status(client, user_id, status_msg, status_text, reply_markup=btn)
+                    if new_status:
+                        _batch_buffers[user_id]["status_msg"] = new_status
+                        status_msg = new_status
 
                 # Debounce timer: wait 12.0 seconds after last forwarded message arrives
                 if _batch_buffers[user_id]["task"]:
