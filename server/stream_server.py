@@ -494,7 +494,7 @@ async def stream_transmuxed_mp4(request: web.Request, message, file_name: str) -
         )
 
     audio_req = request.query.get("audio") or request.query.get("audio_track")
-    audio_map = f"0:a:{audio_req}" if (audio_req is not None and str(audio_req).isdigit()) else "0:a?"
+    audio_map = f"0:a:{audio_req}?" if (audio_req is not None and str(audio_req).isdigit()) else "0:a?"
 
     ss_param = request.query.get("ss") or request.query.get("t")
     ss_args = []
@@ -626,8 +626,7 @@ async def handle_stream(request: web.Request) -> web.StreamResponse:
     wants_remux = (
         request.query.get("remux") in ("1", "mp4", "true") or
         has_audio_select or
-        ("remux=mp4" in str(request.rel_url)) or
-        (lower_name.endswith((".mkv", ".avi", ".ts")) and ("iphone" in user_agent or "ipad" in user_agent))
+        ("remux=mp4" in str(request.rel_url))
     )
 
     if wants_remux and (has_audio_select or (lower_name.endswith((".mkv", ".avi", ".ts", ".webm")) and not lower_name.endswith(".mp4"))):
