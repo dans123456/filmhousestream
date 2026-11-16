@@ -19,7 +19,7 @@ CLEANUP_TAGS = [
     r"\b(repack|proper|remastered|extended|unrated|imax|complete|final)\b",
     r"\b\d+(\.\d+)?\s*(mb|gb)\b",  # File sizes like 800mb, 1.4gb
     r"\b(iq|iqiyi)\b",  # iQIYI streaming platform tag
-    r"\b(fil|filmh|filmhouse|telefilm|stream)\b",
+    r"\b(fil|filmh|filmhouse|filmhousemain|telefilm|stream)\b",
     r"\b(film|movie|full movie)\b",  # Trailing descriptor words
     r"\[.*?\]",  # Bracketed group names like [TGx]
     r"\(.*?\b(1080p|720p|bluray|web)\b.*?\)",
@@ -133,6 +133,42 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
 
     # Remove file extension (.mkv, .mp4, .avi, etc.)
     name = re.sub(r"\.[a-zA-Z0-9]{2,4}$", "", raw_filename)
+
+    # 0. Evasion / Alias preprocessing
+    # 1917 (2019) title disambiguation
+    if "1917" in name and "2019" in name:
+        name = re.sub(r"^.*?2019.*?1917", "1917.2019", name, flags=re.IGNORECASE)
+
+    # Mission: Impossible obfuscation (M0n Imp0ble, M0n Imp0bl)
+    name = re.sub(r"\bm0n[\s\._-]*imp0bl?e?[\s\._-]*ghost[\s\._-]*protocol\b", "Mission.Impossible.Ghost.Protocol", name, flags=re.IGNORECASE)
+    name = re.sub(r"\bm0n[\s\._-]*imp0bl?e?[\s\._-]*rogue[\s\._-]*nation\b", "Mission.Impossible.Rogue.Nation", name, flags=re.IGNORECASE)
+    name = re.sub(r"\bm0n[\s\._-]*imp0bl?e?[\s\._-]*fallout\b", "Mission.Impossible.Fallout", name, flags=re.IGNORECASE)
+    name = re.sub(r"\bm0n[\s\._-]*imp0bl?e?[\s\._-]*iii\b", "Mission.Impossible.III", name, flags=re.IGNORECASE)
+    name = re.sub(r"\bm0n[\s\._-]*imp0bl?e?[\s\._-]*ii\b", "Mission.Impossible.II", name, flags=re.IGNORECASE)
+    name = re.sub(r"\bm0n[\s\._-]*imp0bl?e?\b", "Mission.Impossible", name, flags=re.IGNORECASE)
+
+    # Captain Underpants Tfem
+    name = re.sub(r"\bcaptain[\s\._-]*underpants[\s\._-]*tfem\b", "Captain.Underpants.The.First.Epic.Movie", name, flags=re.IGNORECASE)
+
+    # Typo: Coiony -> Colony
+    name = re.sub(r"\bcoiony\b", "Colony", name, flags=re.IGNORECASE)
+
+    # Nightborn A.K.A. Yon Lapsi -> Nightborn
+    name = re.sub(r"\bnightborn[\s\._-]+a[\s\._]*k[\s\._]*a[\s\._-]+(?:yon[\s\._-]+lapsi|yön[\s\._-]+lapsi)?\b", "Nightborn", name, flags=re.IGNORECASE)
+
+    # Strip channel 2-letter prefixes: Cc., Ct., Hw., Mf., Mm., Ft. (e.g. Cc.Homefront, Ftcrazy)
+    name = re.sub(r"^(?:cc|ct|hw|mf|mm|ft|tg|tc|hd)[\s\._-]+", "", name, flags=re.IGNORECASE)
+    name = re.sub(r"^ft(?=[a-z])", "", name, flags=re.IGNORECASE)
+
+    # Strip ripper / release group tags like Filmhousemain
+    name = re.sub(r"[\s\._-]+filmhousemain\b", "", name, flags=re.IGNORECASE)
+
+    # Handle leading year + separator: e.g. "2019.-.In.1917" or "2019 - 1917"
+    lead_year_m = re.match(r"^(\d{4})[\s\._-]+(?:-|in)?[\s\._-]+(\d{4})\b", name, re.IGNORECASE)
+    if lead_year_m:
+        y_val, t_val = lead_year_m.group(1), lead_year_m.group(2)
+        name = name[lead_year_m.end():].strip(" .-_")
+        name = f"{t_val} {y_val} {name}".strip()
 
     # Normalize common letter 'o' / 'O' typos in S01E02 (e.g. So1e03 -> S01E03, S01eO3 -> S01E03)
     name = re.sub(r"\b[sS][oO](\d{1,2})", r"S0\1", name)
@@ -316,6 +352,11 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
     for tag_pattern in CLEANUP_TAGS + [r"\bfilmhouse\b"]:
         clean_title = re.sub(tag_pattern, "", clean_title, flags=re.IGNORECASE)
 
+    # Special case: 1917 (2019)
+    if "1917" in raw_filename and ("2019" in raw_filename or not is_series):
+        clean_title = "1917"
+        year = 2019
+
     # Strip empty parentheses and brackets: e.g. "()", "[]"
     clean_title = re.sub(r"\(\s*\)|\[\s*\]", "", clean_title)
 
@@ -339,7 +380,9 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
 
     # Check if the title is actually empty or just a bare number / episode tag
     needs_title = False
-    if not clean_title or BARE_EPISODE_REGEX.match(clean_title) or clean_title.isdigit():
+    if clean_title == "1917":
+        needs_title = False
+    elif not clean_title or BARE_EPISODE_REGEX.match(clean_title) or clean_title.isdigit():
         needs_title = True
         # If is_series was not caught yet (e.g. "01.mp4"), parse numeric episode
         if not is_series:
@@ -372,6 +415,57 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             is_series = True
         elif lower_t in ("beast of no nation", "beasts of no nation"):
             clean_title = "Beasts of No Nation"
+        elif lower_t in ("crazy stupid love", "crazy, stupid, love."):
+            clean_title = "Crazy, Stupid, Love."
+            if not year:
+                year = 2011
+        elif lower_t == "1917":
+            clean_title = "1917"
+            year = 2019
+        elif lower_t in ("better sex", "better sex filmhousemain"):
+            clean_title = "Better Sex"
+            if not year:
+                year = 2011
+        elif lower_t == "where is chioma kalu":
+            clean_title = "Where Is Chioma Kalu"
+            if not year:
+                year = 2026
+        elif lower_t == "colony":
+            clean_title = "Colony"
+            if not year:
+                year = 2026
+        elif lower_t == "nightborn":
+            clean_title = "Nightborn"
+            if not year:
+                year = 2026
+        elif lower_t in ("mission impossible", "mission: impossible"):
+            clean_title = "Mission: Impossible"
+            if not year:
+                year = 1996
+        elif lower_t in ("mission impossible ii", "mission: impossible ii", "mission impossible 2"):
+            clean_title = "Mission: Impossible II"
+            if not year:
+                year = 2000
+        elif lower_t in ("mission impossible iii", "mission: impossible iii", "mission impossible 3"):
+            clean_title = "Mission: Impossible III"
+            if not year:
+                year = 2006
+        elif lower_t in ("mission impossible ghost protocol", "mission: impossible - ghost protocol"):
+            clean_title = "Mission: Impossible - Ghost Protocol"
+            if not year:
+                year = 2011
+        elif lower_t in ("mission impossible rogue nation", "mission: impossible - rogue nation"):
+            clean_title = "Mission: Impossible - Rogue Nation"
+            if not year:
+                year = 2015
+        elif lower_t in ("mission impossible fallout", "mission: impossible - fallout"):
+            clean_title = "Mission: Impossible - Fallout"
+            if not year:
+                year = 2018
+        elif lower_t in ("captain underpants the first epic", "captain underpants the first epic movie", "captain underpants: the first epic movie", "captain underpants tfem"):
+            clean_title = "Captain Underpants: The First Epic Movie"
+            if not year:
+                year = 2017
 
         # Acronyms, compound titles, and collapsed aliases
         collapsed = re.sub(r"[^a-z0-9]", "", lower_t)
@@ -445,6 +539,19 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             clean_title = "The Wings Initiative"
         elif norm_t.startswith("the low priest") or norm_t.startswith("low priest"):
             clean_title = "The Low Priest"
+        elif norm_t.startswith("avatar aang") or norm_t.startswith("avatar the last airbender") or norm_t.startswith("the legend of aang") or "last airbender" in norm_t:
+            clean_title = "Avatar: The Last Airbender"
+            is_series = True
+        elif norm_t == "macgyver":
+            clean_title = "MacGyver"
+            is_series = True
+            if not year:
+                year = 2016
+        elif norm_t == "love in disguise":
+            clean_title = "Love in Disguise"
+            is_series = True
+            if not year:
+                year = 2026
         elif "koleoso" in norm_t:
             clean_title = "Koleoso"
             is_series = True

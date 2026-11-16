@@ -971,6 +971,22 @@ def build_api_media_payload() -> dict:
             if parsed.get("is_series"):
                 title_clean = re.sub(r"^(?:the\s+)?(?:end|finale|final)\s+", "", title_clean, flags=re.IGNORECASE).strip()
                 title_clean = re.sub(r"[\s\.\-_]+(?:the\s+)?(?:end|finale|final)$", "", title_clean, flags=re.IGNORECASE).strip()
+                norm_lower = title_clean.lower()
+                if norm_lower.startswith("avatar aang") or "last airbender" in norm_lower:
+                    title_clean = "Avatar: The Last Airbender"
+                    parsed["title"] = "Avatar: The Last Airbender"
+                    if not parsed.get("tmdb_id"):
+                        parsed["tmdb_id"] = 82452
+                elif norm_lower == "macgyver":
+                    title_clean = "MacGyver"
+                    parsed["title"] = "MacGyver"
+                    parsed["year"] = 2016
+                    parsed["tmdb_id"] = 67133
+                elif norm_lower == "love in disguise":
+                    title_clean = "Love in Disguise"
+                    parsed["title"] = "Love in Disguise"
+                    if not parsed.get("year"):
+                        parsed["year"] = 2026
 
             if parsed.get("is_series"):
                 s_num = safe_int(parsed.get("season"), default=1)

@@ -18,6 +18,227 @@ def _ensure_storage():
 
 
 import time
+import re
+from typing import Optional
+
+
+def parse_size_bytes(size_val: Any) -> int:
+    """Safely converts file size strings (e.g. '750.5 MB', '1.4 GB') or numbers to integer bytes."""
+    if not size_val:
+        return 0
+    if isinstance(size_val, (int, float)):
+        return int(size_val)
+    s = str(size_val).strip().upper()
+    try:
+        m = re.match(r"^([\d\.]+)\s*([KMGT]?B?)$", s)
+        if not m:
+            return 0
+        num = float(m.group(1))
+        unit = m.group(2)
+        if "G" in unit:
+            return int(num * 1024 * 1024 * 1024)
+        if "M" in unit:
+            return int(num * 1024 * 1024)
+        if "K" in unit:
+            return int(num * 1024)
+        return int(num)
+    except Exception:
+        return 0
+
+
+def get_canonical_item_key(parsed: dict, file_name: str) -> str:
+    """
+    Computes a canonical deduplication key for any media file.
+    - Series: series:<canonical_title>:s<season>:e<episode>
+    - Movie: movie:<canonical_title>:<year>:<quality>
+    """
+    p = parsed or {}
+    raw_title = str(p.get("title") or file_name or "").strip().lower()
+
+    # Universal normalization
+    norm = re.sub(r"['’`]", "", raw_title)
+    norm = norm.replace("&", " and ")
+    norm = re.sub(r"[^a-z0-9\s]", " ", norm)
+    norm = re.sub(r"\s+", "_", norm.strip())
+    norm = re.sub(r"^(the|a|an)_+", "", norm)
+    norm = re.sub(r"^(the_)?(end|finale|final)_+", "", norm)
+    norm = re.sub(r"_+(the_)?(end|finale|final)$", "", norm)
+
+    # Franchise canonical aliases
+    if norm.startswith("avatar_aang") or norm.startswith("avatar_the_last_airbender") or norm.startswith("legend_of_aang") or "last_airbender" in norm:
+        norm = "avatar_the_last_airbender"
+    elif norm.startswith("macgyver"):
+        norm = "macgyver"
+    elif norm.startswith("love_in_disguise"):
+        norm = "love_in_disguise"
+    elif norm == "forever" or norm.startswith("forever_"):
+        norm = "forever"
+    elif "ruthless" in norm:
+        norm = "tyler_perrys_ruthless"
+    elif "sista" in norm:
+        norm = "tyler_perrys_sistas"
+    elif norm.startswith("flex_x_cop") or norm.startswith("flexxcop"):
+        norm = "flex_x_cop"
+
+    is_series = bool(p.get("is_series"))
+    if is_series:
+        s = p.get("season") or 1
+        e = p.get("episode") or 1
+        try:
+            s_int = int(s)
+            e_int = int(e)
+        except Exception:
+            s_int, e_int = 1, 1
+        return f"series:{norm}:s{s_int:02d}:e{e_int:02d}"
+    else:
+        y = str(p.get("year") or "").strip()
+        q = str(p.get("quality") or "hd").lower().strip()
+        if "4k" in q or "2160" in q:
+            q = "4k"
+        elif "1080" in q:
+            q = "1080p"
+        elif "720" in q:
+            q = "720p"
+        elif "480" in q:
+            q = "480p"
+        else:
+            q = "hd"
+        return f"movie:{norm}:{y}:{q}"
+
+
+def find_library_duplicate(parsed: dict, file_name: str, new_size_bytes: int = 0) -> Optional[Dict[str, Any]]:
+    """
+    Checks if a media file already exists in the tracking ledger.
+    Returns None if unique, or a dict describing the duplicate and whether the incoming
+    file qualifies as an upgrade (e.g. >10MB larger / higher bitrate).
+    """
+    _ensure_storage()
+    records = get_tracked_files()
+    if not records:
+        return None
+
+    target_key = get_canonical_item_key(parsed, file_name)
+    if not target_key or target_key.startswith("movie:::"):
+        return None
+
+    for r in records:
+        r_parsed = r.get("parsed") or {}
+        r_fn = r.get("original_filename") or r.get("file_name") or ""
+        r_key = get_canonical_item_key(r_parsed, r_fn)
+        if r_key == target_key:
+            old_size = parse_size_bytes(r.get("file_size_str") or r_parsed.get("file_size"))
+            # If new file is > 10MB larger, it qualifies as an upgrade
+            is_upgrade = bool(new_size_bytes and (new_size_bytes > old_size + 10 * 1024 * 1024))
+            return {
+                "is_duplicate": True,
+                "is_upgrade": is_upgrade,
+                "existing_record": r,
+                "old_message_id": r.get("message_id"),
+                "old_file_name": r.get("file_name"),
+                "old_size_str": r.get("file_size_str") or "",
+            }
+
+    return None
+
+
+def replace_tracked_file(old_message_id: int, new_message_id: int, file_name: str, parsed: dict = None, file_size_str: str = None):
+    """Replaces an existing duplicate record with the upgraded higher quality file."""
+    _ensure_storage()
+    try:
+        with open(STORAGE_FILE, "r", encoding="utf-8") as f:
+            records = json.load(f)
+    except Exception:
+        records = []
+
+    from server.parser import build_golden_filename
+    golden = (parsed and parsed.get("golden_name")) or (parsed and build_golden_filename(parsed, file_name)) or file_name
+    category = (parsed and parsed.get("category")) or "movies"
+
+    updated = False
+    for r in records:
+        if r.get("message_id") == old_message_id:
+            r["message_id"] = new_message_id
+            r["file_name"] = golden
+            r["original_filename"] = file_name
+            r["category"] = category
+            r["parsed"] = parsed or {}
+            r["file_size_str"] = file_size_str or ""
+            r["created_at"] = int(time.time())
+            updated = True
+            break
+
+    if not updated:
+        records.append({
+            "message_id": new_message_id,
+            "file_name": golden,
+            "original_filename": file_name,
+            "category": category,
+            "parsed": parsed or {},
+            "file_size_str": file_size_str or "",
+            "created_at": int(time.time()),
+        })
+
+    try:
+        with open(STORAGE_FILE, "w", encoding="utf-8") as f:
+            json.dump(records, f, indent=2)
+    except Exception as e:
+        logger.error(f"Failed to save updated tracked media: {e}")
+
+
+def deduplicate_entire_library() -> tuple:
+    """
+    Scans the entire tracking ledger and removes redundant duplicate entries,
+    keeping the version with the highest quality / largest file size.
+    Returns (removed_count, list_of_removed_message_ids).
+    """
+    _ensure_storage()
+    try:
+        with open(STORAGE_FILE, "r", encoding="utf-8") as f:
+            records = json.load(f)
+    except Exception:
+        return 0, []
+
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for r in records:
+        p = r.get("parsed") or {}
+        fn = r.get("original_filename") or r.get("file_name") or ""
+        k = get_canonical_item_key(p, fn)
+        groups[k].append(r)
+
+    kept_records = []
+    removed_mids = []
+
+    for k, items in groups.items():
+        if len(items) == 1 or not k or k.startswith("movie:::"):
+            kept_records.extend(items)
+            continue
+
+        def item_score(it):
+            size = parse_size_bytes(it.get("file_size_str") or (it.get("parsed") or {}).get("file_size"))
+            created = it.get("created_at") or 0
+            has_tmdb = 1 if (it.get("tmdb_id") or (it.get("parsed") or {}).get("tmdb_id")) else 0
+            return (size, has_tmdb, created)
+
+        sorted_items = sorted(items, key=item_score, reverse=True)
+        winner = sorted_items[0]
+        kept_records.append(winner)
+
+        for loser in sorted_items[1:]:
+            mid = loser.get("message_id")
+            if mid:
+                removed_mids.append(mid)
+
+    kept_records.sort(key=lambda x: x.get("message_id", 0))
+
+    try:
+        with open(STORAGE_FILE, "w", encoding="utf-8") as f:
+            json.dump(kept_records, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Failed to save deduplicated tracked media: {e}")
+
+    return len(removed_mids), removed_mids
+
 
 def record_indexed_file(message_id: int, file_name: str, parsed: dict = None, file_size_str: str = None):
     """Save forwarded message_id, filename, and parsed metadata to the tracking ledger."""

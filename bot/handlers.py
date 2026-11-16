@@ -10,7 +10,16 @@ from hydrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton,
 from server.security import generate_stream_token
 from server.parser import parse_filename
 from server.stream_server import format_bytes
-from bot.storage import record_indexed_file, get_tracked_files, remove_tracked_files, get_nameless_records, is_nameless_record
+from bot.storage import (
+    record_indexed_file,
+    get_tracked_files,
+    remove_tracked_files,
+    get_nameless_records,
+    is_nameless_record,
+    find_library_duplicate,
+    replace_tracked_file,
+    deduplicate_entire_library,
+)
 import config
 
 logger = logging.getLogger("filmhouse.bot")
@@ -196,10 +205,43 @@ async def flush_batch(client: Client, user_id: int):
                 except Exception as tmdb_err:
                     logger.debug(f"TMDB single-file check notice: {tmdb_err}")
 
+            # Proactive Library Deduplication Check
+            new_size_bytes = (msg.video.file_size if msg.video else (msg.document.file_size if msg.document else 0))
+            dup_info = find_library_duplicate(parsed, file_name, new_size_bytes)
+            is_upgraded_version = False
+
+            if dup_info and not dup_info.get("is_upgrade"):
+                old_mid = dup_info["old_message_id"]
+                token = generate_stream_token(old_mid)
+                stream_url = f"{config.SERVER_URL}/watch/{token}"
+                dup_text = (
+                    f"⚠️ **Duplicate Detected!**\n\n"
+                    f"📁 `{file_name}` is **already in your library** ({dup_info.get('old_size_str') or 'Stored'}).\n\n"
+                    f"🔗 **Existing Stream Link:**\n`{stream_url}`\n\n"
+                    f"*(Skipped uploading to bin channel to prevent duplicate storage)*"
+                )
+                buttons = [
+                    [InlineKeyboardButton("▶️ Watch Existing", url=stream_url)],
+                    [InlineKeyboardButton("📱 View Library (Admin WebApp)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library?admin_key={config.ADMIN_SECRET}"))],
+                ]
+                await status_msg.edit_text(dup_text, reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
+                return
+
             try:
-                # Post copy to bin channel without "Forwarded from" header
-                forwarded = await safe_copy_message(msg, config.BIN_CHANNEL_ID, status_msg=status_msg, ep_info=file_name)
-                record_indexed_file(forwarded.id, file_name, parsed=parsed, file_size_str=file_size_str)
+                if dup_info and dup_info.get("is_upgrade"):
+                    old_mid = dup_info["old_message_id"]
+                    try:
+                        await client.delete_messages(config.BIN_CHANNEL_ID, old_mid)
+                    except Exception as del_err:
+                        logger.warning(f"Could not delete old duplicate message {old_mid}: {del_err}")
+                    forwarded = await safe_copy_message(msg, config.BIN_CHANNEL_ID, status_msg=status_msg, ep_info=file_name)
+                    replace_tracked_file(old_mid, forwarded.id, file_name, parsed=parsed, file_size_str=file_size_str)
+                    is_upgraded_version = True
+                else:
+                    # Post copy to bin channel without "Forwarded from" header
+                    forwarded = await safe_copy_message(msg, config.BIN_CHANNEL_ID, status_msg=status_msg, ep_info=file_name)
+                    record_indexed_file(forwarded.id, file_name, parsed=parsed, file_size_str=file_size_str)
+
                 token = generate_stream_token(forwarded.id)
                 stream_url = f"{config.SERVER_URL}/watch/{token}"
 
@@ -228,6 +270,9 @@ async def flush_batch(client: Client, user_id: int):
                         f"🔗 **Stream Link (Player):**\n`{stream_url}`\n\n"
                         f"🔑 **Token:**\n`{token}`"
                     )
+
+                if is_upgraded_version:
+                    text = f"✨ **Higher Quality Upgrade (Replaced Old Version)!**\n\n" + text
 
                 buttons = [
                     [InlineKeyboardButton("▶️ Test Stream (Player)", url=stream_url)],
@@ -325,22 +370,64 @@ async def process_movies_batch(client: Client, user_id: int, items: list, status
         )
 
         processed_versions = []
+        skipped_duplicates = 0
+        upgraded_count = 0
+
         for it in m_items:
             raw_msg: Message = it["msg"]
             processed_count += 1
+            new_size_bytes = (raw_msg.video.file_size if raw_msg.video else (raw_msg.document.file_size if raw_msg.document else 0))
+            dup_info = find_library_duplicate(it["parsed"], it["file_name"], new_size_bytes)
+
             try:
-                forwarded = await safe_copy_message(
-                    raw_msg,
-                    config.BIN_CHANNEL_ID,
-                    status_msg=status_msg,
-                    ep_info=f"movie {it['file_name']}"
-                )
-                record_indexed_file(
-                    forwarded.id,
-                    it["file_name"],
-                    parsed=it["parsed"],
-                    file_size_str=it["file_size_str"]
-                )
+                if dup_info and not dup_info.get("is_upgrade"):
+                    old_mid = dup_info["old_message_id"]
+                    token = generate_stream_token(old_mid)
+                    stream_url = f"{config.SERVER_URL}/watch/{token}"
+                    processed_versions.append({
+                        "quality": (it["parsed"].get("quality") or "HD"),
+                        "file_name": it["file_name"],
+                        "file_size_str": it["file_size_str"],
+                        "stream_url": stream_url,
+                        "token": token,
+                        "is_duplicate": True,
+                    })
+                    skipped_duplicates += 1
+                    continue
+                elif dup_info and dup_info.get("is_upgrade"):
+                    old_mid = dup_info["old_message_id"]
+                    try:
+                        await client.delete_messages(config.BIN_CHANNEL_ID, old_mid)
+                    except Exception as del_err:
+                        logger.warning(f"Could not delete old duplicate movie message {old_mid}: {del_err}")
+                    forwarded = await safe_copy_message(
+                        raw_msg,
+                        config.BIN_CHANNEL_ID,
+                        status_msg=status_msg,
+                        ep_info=f"movie {it['file_name']}"
+                    )
+                    replace_tracked_file(
+                        old_mid,
+                        forwarded.id,
+                        it["file_name"],
+                        parsed=it["parsed"],
+                        file_size_str=it["file_size_str"]
+                    )
+                    upgraded_count += 1
+                else:
+                    forwarded = await safe_copy_message(
+                        raw_msg,
+                        config.BIN_CHANNEL_ID,
+                        status_msg=status_msg,
+                        ep_info=f"movie {it['file_name']}"
+                    )
+                    record_indexed_file(
+                        forwarded.id,
+                        it["file_name"],
+                        parsed=it["parsed"],
+                        file_size_str=it["file_size_str"]
+                    )
+
                 token = generate_stream_token(forwarded.id)
                 stream_url = f"{config.SERVER_URL}/watch/{token}"
                 processed_versions.append({
@@ -560,23 +647,67 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
         )
 
         processed_links = []
+        skipped_duplicates = 0
+        upgraded_count = 0
         last_status_edit = 0.0
         for idx, ep_item in enumerate(ep_items, start=1):
             raw_msg: Message = ep_item["msg"]
+            new_size_bytes = (raw_msg.video.file_size if raw_msg.video else (raw_msg.document.file_size if raw_msg.document else 0))
+            dup_info = find_library_duplicate(ep_item["parsed"], ep_item["file_name"], new_size_bytes)
+
             try:
-                # Post copy to bin channel without "Forwarded from" header (with auto-FloodWait retry)
-                forwarded = await safe_copy_message(
-                    raw_msg,
-                    config.BIN_CHANNEL_ID,
-                    status_msg=status_msg,
-                    ep_info=f"at episode {idx}/{total_eps}"
-                )
-                record_indexed_file(
-                    forwarded.id,
-                    ep_item["file_name"],
-                    parsed=ep_item["parsed"],
-                    file_size_str=ep_item["file_size_str"]
-                )
+                if dup_info and not dup_info.get("is_upgrade"):
+                    old_mid = dup_info["old_message_id"]
+                    token = generate_stream_token(old_mid)
+                    stream_url = f"{config.SERVER_URL}/watch/{token}"
+                    ep_num = ep_item["parsed"]["episode"] or idx
+                    end_ep_num = ep_item["parsed"].get("end_episode")
+                    ep_title = ep_item["parsed"]["episode_title"]
+                    title_label = f" — {ep_title}" if ep_title else ""
+                    processed_links.append({
+                        "ep_num": ep_num,
+                        "end_ep_num": end_ep_num,
+                        "title_label": title_label,
+                        "stream_url": stream_url,
+                        "file_name": ep_item["file_name"],
+                    })
+                    skipped_duplicates += 1
+                    continue
+                elif dup_info and dup_info.get("is_upgrade"):
+                    old_mid = dup_info["old_message_id"]
+                    try:
+                        await client.delete_messages(config.BIN_CHANNEL_ID, old_mid)
+                    except Exception as del_err:
+                        logger.warning(f"Could not delete old duplicate episode message {old_mid}: {del_err}")
+                    forwarded = await safe_copy_message(
+                        raw_msg,
+                        config.BIN_CHANNEL_ID,
+                        status_msg=status_msg,
+                        ep_info=f"at episode {idx}/{total_eps}"
+                    )
+                    replace_tracked_file(
+                        old_mid,
+                        forwarded.id,
+                        ep_item["file_name"],
+                        parsed=ep_item["parsed"],
+                        file_size_str=ep_item["file_size_str"]
+                    )
+                    upgraded_count += 1
+                else:
+                    # Post copy to bin channel without "Forwarded from" header (with auto-FloodWait retry)
+                    forwarded = await safe_copy_message(
+                        raw_msg,
+                        config.BIN_CHANNEL_ID,
+                        status_msg=status_msg,
+                        ep_info=f"at episode {idx}/{total_eps}"
+                    )
+                    record_indexed_file(
+                        forwarded.id,
+                        ep_item["file_name"],
+                        parsed=ep_item["parsed"],
+                        file_size_str=ep_item["file_size_str"]
+                    )
+
                 token = generate_stream_token(forwarded.id)
                 stream_url = f"{config.SERVER_URL}/watch/{token}"
 
@@ -659,10 +790,12 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
             ep_range = f"Ep {start_ep_num:02d} – {end_ep_num:02d}"
 
             part_label = f" (Part {c_idx + 1}/{total_chunks} • {ep_range})" if total_chunks > 1 else ""
+            dup_note = f"⏭️ **Skipped {skipped_duplicates} duplicate episode(s) already in library.**\n" if skipped_duplicates else ""
+            upgrade_note = f"✨ **Upgraded {upgraded_count} episode(s) to higher quality!**\n" if upgraded_count else ""
             header = (
                 f"📺 **{show_title} — Season {season}**{part_label}\n"
                 f"⚡ **{len(processed_links)} Episodes Indexed & Sorted!**\n"
-                f"{audit_note}\n"
+                f"{dup_note}{upgrade_note}{audit_note}"
                 f"📋 **Tap Code Box Below to Copy All Links (1-Tap Copy):**\n"
             )
 
@@ -1089,6 +1222,69 @@ def register_handlers(app: Client):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Bin Manager", callback_data="bin_manage")]])
         )
 
+    @app.on_callback_query(filters.regex("bin_clean_dupes_confirm"))
+    async def bin_clean_dupes_confirm_callback(client: Client, query: CallbackQuery):
+        """Shows confirmation for library deduplication."""
+        if not is_authorized(query.from_user.id):
+            await query.answer("⛔ Access Denied: Admin authorization required.", show_alert=True)
+            return
+
+        text = (
+            "🧹 **Auto-Deduplicate Entire Library**\n\n"
+            "This will scan your library and identify any duplicate episodes or movie copies.\n\n"
+            "✨ **Quality Protection:** For every duplicate found, it **keeps the highest quality / largest file** "
+            "and automatically cleans the redundant lower-quality copies from your database and channel.\n\n"
+            "Proceed with deduplication?"
+        )
+        buttons = [
+            [InlineKeyboardButton("🚀 Clean All Existing Duplicates", callback_data="bin_clean_dupes_exec")],
+            [InlineKeyboardButton("🟢 Cancel", callback_data="bin_manage")],
+        ]
+        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+
+    @app.on_callback_query(filters.regex("bin_clean_dupes_exec"))
+    async def bin_clean_dupes_exec_callback(client: Client, query: CallbackQuery):
+        """Executes deduplication across the library."""
+        if not is_authorized(query.from_user.id):
+            await query.answer("⛔ Access Denied: Admin authorization required.", show_alert=True)
+            return
+
+        await query.answer("🧹 Scanning and deduplicating...", show_alert=False)
+        removed_count, removed_mids = deduplicate_entire_library()
+
+        if removed_count == 0:
+            await query.message.edit_text(
+                "🎉 **Your library is already 100% clean!**\n\nNo duplicate episodes or movies were found.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Bin Manager", callback_data="bin_manage")]])
+            )
+            return
+
+        # Delete removed duplicate message IDs from Telegram channel in batches of 50
+        deleted_count = 0
+        for i in range(0, len(removed_mids), 50):
+            chunk = removed_mids[i:i + 50]
+            try:
+                await client.delete_messages(config.BIN_CHANNEL_ID, chunk)
+                deleted_count += len(chunk)
+                await asyncio.sleep(0.3)
+            except Exception as e:
+                logger.error(f"Error deleting duplicate messages from channel: {e}")
+
+        try:
+            from server.stream_server import invalidate_media_cache
+            invalidate_media_cache()
+        except Exception:
+            pass
+
+        await query.message.edit_text(
+            f"🎉 **Deduplication Complete!**\n\n"
+            f"• **Duplicates Removed:** `{removed_count} redundant copies`\n"
+            f"• **Channel Messages Cleaned:** `{deleted_count} messages`\n"
+            f"• **Quality:** Highest-quality / largest versions preserved.\n\n"
+            "Your database and streaming library are now completely deduplicated!",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Bin Manager", callback_data="bin_manage")]])
+        )
+
     @app.on_callback_query(filters.regex("bin_manual_help"))
     async def bin_manual_help_callback(client: Client, query: CallbackQuery):
         """Explains how to manually clear files in Telegram channel."""
@@ -1316,6 +1512,7 @@ async def send_bin_manager_menu(message: Message, edit: bool = False):
     )
 
     buttons = [
+        [InlineKeyboardButton("🧹 Deduplicate Library (Clean Existing)", callback_data="bin_clean_dupes_confirm")],
         [InlineKeyboardButton("🗑️ Purge Nameless Files (.S01E...)", callback_data="bin_del_nameless_confirm")],
         [InlineKeyboardButton(f"🗑️ Delete Last 25 Test Files", callback_data="bin_del_recent")],
         [InlineKeyboardButton("⚠️ Empty All Test Files (Danger)", callback_data="bin_del_all_confirm")],

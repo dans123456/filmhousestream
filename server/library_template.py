@@ -1916,6 +1916,9 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       }
 
       // Known Franchise Aliases
+      if (norm.startsWith('avatar_aang') || norm.startsWith('avatar_the_last_airbender') || norm.startsWith('legend_of_aang') || norm.includes('last_airbender')) return 'avatar_the_last_airbender';
+      if (norm.startsWith('macgyver')) return 'macgyver';
+      if (norm.startsWith('love_in_disguise')) return 'love_in_disguise';
       if (norm.startsWith('a_good_day_to_be_a_dog') || norm.includes('good_day_to_be_a_dog')) return 'a_good_day_to_be_a_dog';
       if (norm.startsWith('hidden_love')) return 'hidden_love';
       if (norm.startsWith('flex_x_cop') || norm.startsWith('flexxcop') || norm.includes('flex_x_cop')) return 'flex_x_cop';
@@ -2765,7 +2768,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
                                 <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="onCardCheck(event, ${ep.message_id})">
                               </div>
                               <span class="episode-num-badge">Ep ${ep.end_episode && ep.end_episode > ep.episode ? ep.episode + '-' + ep.end_episode : (ep.episode || 1)}</span>
-                              <span class="episode-title-text" title="${escapeHtml(ep.file_name)}">${escapeHtml(epSub || ep.file_name)}</span>
+                              <span class="episode-title-text" title="${escapeHtml(ep.file_name)}"><span style="font-weight:600;">${escapeHtml(ep.file_name)}</span>${epSub ? `<span style="color:#94a3b8; font-size:0.75rem; margin-left:6px;">${escapeHtml(epSub)}</span>` : ''}</span>
                             </div>
                             <span style="font-size:0.7rem; color:#94a3b8;">${escapeHtml(ep.file_size_str || '')}</span>
                           </div>

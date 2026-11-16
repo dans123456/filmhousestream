@@ -370,6 +370,52 @@ async def get_tmdb_tv_details(session: aiohttp.ClientSession, tv_id: int) -> Opt
     return None
 
 
+def get_auditor_canonical_key(raw_title: str) -> str:
+    """
+    Produces a unified canonical key for grouping TV series episodes.
+    Strips trailing release/year tags so episodes of the same show never get split.
+    """
+    if not raw_title:
+        return ""
+    norm = re.sub(r"['’`]", "", str(raw_title).lower())
+    norm = norm.replace("&", " and ")
+    norm = re.sub(r"[^a-z0-9\s]", " ", norm)
+    norm = re.sub(r"\s+", "_", norm.strip())
+
+    # Universal article stripper: "the_", "a_", "an_"
+    norm = re.sub(r"^(?:the|a|an)_+", "", norm)
+
+    # Strip End / Finale markers
+    norm = re.sub(r"^(?:the_)?(?:end|finale|final)_+", "", norm)
+    norm = re.sub(r"_+(?:the_)?(?:end|finale|final)$", "", norm)
+
+    # Proactively strip trailing part, season, volume, year, and release descriptors
+    for _ in range(3):
+        norm = re.sub(r"_(?:season|s|part|pt|vol|volume|book|chapter|cdrama|kdrama|series|miniseries|tv|complete|full|hd|sd|hq|fhd|uhd|4k|1080p|720p|480p)(?:_\d+)*$", "", norm)
+        norm = re.sub(r"_\d{4}$", "", norm)
+
+    # Known franchise aliases
+    if (
+        norm.startswith("avatar_aang")
+        or norm.startswith("avatar_the_last_airbender")
+        or norm.startswith("legend_of_aang")
+        or "last_airbender" in norm
+    ):
+        return "avatar_the_last_airbender"
+    if norm.startswith("macgyver"):
+        return "macgyver"
+    if norm.startswith("love_in_disguise"):
+        return "love_in_disguise"
+    if norm.startswith("flex_x_cop") or norm.startswith("flexxcop"):
+        return "flex_x_cop"
+    if norm.startswith("georgie_and_mandy"):
+        return "georgie_and_mandys_first_marriage"
+
+    # Normalize trailing single digits like _1, _2
+    norm = re.sub(r"_[0-9]$", "", norm)
+    return norm.strip("_")
+
+
 async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, Any]:
     """
     Scans all series in FilmHouse library:
@@ -405,16 +451,24 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
                 # Clean title of End / Finale
                 clean_title = re.sub(r"^(?:the\s+)?(?:end|finale|final)\s+", "", raw_title, flags=re.IGNORECASE).strip()
                 clean_title = re.sub(r"[\s\.\-_]+(?:the\s+)?(?:end|finale|final)$", "", clean_title, flags=re.IGNORECASE).strip()
-                k = re.sub(r"[^a-z0-9]+", "_", clean_title.lower()).strip("_")
-                # Normalize trailing digits/part numbers from k (only single digits like _1, _2; preserve _81, _19)
-                base_k = re.sub(r"_[0-9]$", "", k)
-                if base_k and len(base_k) >= 3:
-                    k = base_k
+                k = get_auditor_canonical_key(clean_title)
                 if not k:
                     continue
 
-                if item_year:
-                    k = f"{k}_{item_year}"
+                # Franchise overrides for accurate TMDB completeness checks
+                if k == "macgyver":
+                    # MacGyver in library is the 2016 reboot series (TMDB ID 67133, Season 5 has 15 episodes)
+                    item_year = 2016
+                    tmdb_id = 67133
+                    clean_title = "MacGyver"
+                elif k == "avatar_the_last_airbender":
+                    clean_title = "Avatar: The Last Airbender"
+                    if not tmdb_id:
+                        tmdb_id = 82452
+                elif k == "love_in_disguise":
+                    clean_title = "Love in Disguise"
+                    if not item_year:
+                        item_year = 2026
 
                 if k not in series_groups:
                     series_groups[k] = {
@@ -431,6 +485,9 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
                         series_groups[k]["year"] = item_year
                     if tmdb_id and not series_groups[k].get("tmdb_id"):
                         series_groups[k]["tmdb_id"] = tmdb_id
+                    # Prefer standard clean franchise title
+                    if clean_title and len(clean_title) > len(series_groups[k]["title"]):
+                        series_groups[k]["title"] = clean_title
 
                 s_num = int(it.get("season") or 1)
                 e_num = int(it.get("episode") or 1)
