@@ -1902,6 +1902,9 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       norm = norm.replace(/[^a-z0-9\s]/g, ' ');
       norm = norm.trim().replace(/\s+/g, '_');
 
+      // Strip leading season prefix (e.g. "s01_the_early_spring")
+      norm = norm.replace(/^s\d{1,2}_+/, '');
+
       // Universal article stripper: "the_", "a_", "an_" so titles with/without articles unite automatically!
       norm = norm.replace(/^(the|a|an)_+/, '');
 
@@ -1909,16 +1912,20 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       norm = norm.replace(/^(the_)?(end|finale|final)_+/, '');
       norm = norm.replace(/_+(the_)?(end|finale|final)$/, '');
 
-      // Proactively strip trailing part, season, volume, year, and release descriptors
-      for (let i = 0; i < 3; i++) {
-        norm = norm.replace(/_(season|s|part|pt|vol|volume|book|chapter|cdrama|kdrama|series|miniseries|tv|complete|full|hd|sd|hq|fhd|uhd|4k|1080p|720p|480p)(_\d+)*$/g, '');
+      // Proactively strip trailing part, season, volume, year, resolution, codec, and release descriptors
+      for (let i = 0; i < 4; i++) {
+        norm = norm.replace(/_(season|s|part|pt|vol|volume|book|chapter|cdrama|kdrama|series|miniseries|tv|complete|full|hd|sd|hq|fhd|uhd|4k|2160p|1440p|1080p|720p|576p|540p|480p|360p|240p|264|265|x264|x265|h264|h265|fi|fil|film|filmh|filmho|filmhou|filmhous|filmhouse|telegram|d)(_\d+)*$/g, '');
         norm = norm.replace(/_\d{4}$/g, '');
       }
+      norm = norm.replace(/_[0-9]$/, '');
 
       // Known Franchise Aliases
+      if (norm === 'forever' || norm.startsWith('forever_')) return 'forever';
       if (norm.startsWith('avatar_aang') || norm.startsWith('avatar_the_last_airbender') || norm.startsWith('legend_of_aang') || norm.includes('last_airbender')) return 'avatar_the_last_airbender';
       if (norm.startsWith('macgyver')) return 'macgyver';
       if (norm.startsWith('love_in_disguise')) return 'love_in_disguise';
+      if (norm.startsWith('maxton_hall')) return 'maxton_hall';
+      if (norm === 'mother_of_the_bride' || norm === 'mother_of_the_brides') return 'mother_of_the_brides';
       if (norm.startsWith('a_good_day_to_be_a_dog') || norm.includes('good_day_to_be_a_dog')) return 'a_good_day_to_be_a_dog';
       if (norm.startsWith('hidden_love')) return 'hidden_love';
       if (norm.startsWith('flex_x_cop') || norm.startsWith('flexxcop') || norm.includes('flex_x_cop')) return 'flex_x_cop';
@@ -1991,15 +1998,20 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       if (col.includes('aang') || col.includes('airbender')) return 'Avatar Aang: The Last Airbender';
       if (col.includes('nerotheassassin')) return 'Néro The Assassin';
 
+      if (col.startsWith('maxtonhall')) return 'Maxton Hall';
+      if (col === 'motherofthebride' || col === 'motherofthebrides') return 'Mother Of The Brides';
+
       let clean = String(rawTitle).trim();
+      clean = clean.replace(/^s\d{1,2}\s+/i, '');
       clean = clean.replace(/^(the\s+)?(end|finale|final)\s+/i, '');
       clean = clean.replace(/[\s\.\-_]+(the\s+)?(end|finale|final)$/i, '');
+      clean = clean.replace(/\b(2160p|1440p|1080p|720p|576p|540p|480p|360p|240p|264|265|x264|x265|h264|h265)\b/gi, '');
       for (let i = 0; i < 3; i++) {
         clean = clean.replace(/\(\s*(part|pt|vol|volume|book|chapter|season|s)\s*\d*\s*\)/gi, '');
         clean = clean.replace(/[\s\.\-_]+(part|pt|vol|volume|book|chapter|season|s)\s*\d*$/i, '');
-        clean = clean.replace(/[\s\.\-_]+(kdrama|cdrama|k-drama|c-drama|series|tv|miniseries|mini-series|complete|full)$/i, '');
+        clean = clean.replace(/[\s\.\-_]+(kdrama|cdrama|k-drama|c-drama|series|tv|miniseries|mini-series|complete|full|telegram|fi|fil|film|filmh|filmho|filmhou|filmhous|d)$/i, '');
         clean = clean.replace(/[\s\.\-_]+\(?\d{4}\)?$/i, '');
-        clean = clean.trim();
+        clean = clean.replace(/\s+/g, ' ').trim();
       }
       return clean || rawTitle;
     }

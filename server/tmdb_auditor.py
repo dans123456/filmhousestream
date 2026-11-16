@@ -382,6 +382,9 @@ def get_auditor_canonical_key(raw_title: str) -> str:
     norm = re.sub(r"[^a-z0-9\s]", " ", norm)
     norm = re.sub(r"\s+", "_", norm.strip())
 
+    # Strip leading season tags (e.g. "s01_the_early_spring")
+    norm = re.sub(r"^s\d{1,2}_+", "", norm)
+
     # Universal article stripper: "the_", "a_", "an_"
     norm = re.sub(r"^(?:the|a|an)_+", "", norm)
 
@@ -389,9 +392,9 @@ def get_auditor_canonical_key(raw_title: str) -> str:
     norm = re.sub(r"^(?:the_)?(?:end|finale|final)_+", "", norm)
     norm = re.sub(r"_+(?:the_)?(?:end|finale|final)$", "", norm)
 
-    # Proactively strip trailing part, season, volume, year, and release descriptors
-    for _ in range(3):
-        norm = re.sub(r"_(?:season|s|part|pt|vol|volume|book|chapter|cdrama|kdrama|series|miniseries|tv|complete|full|hd|sd|hq|fhd|uhd|4k|1080p|720p|480p)(?:_\d+)*$", "", norm)
+    # Proactively strip trailing part, season, volume, year, resolution, codec, and release descriptors
+    for _ in range(4):
+        norm = re.sub(r"_(?:season|s|part|pt|vol|volume|book|chapter|cdrama|kdrama|series|miniseries|tv|complete|full|hd|sd|hq|fhd|uhd|4k|2160p|1440p|1080p|720p|576p|540p|480p|360p|240p|264|265|x264|x265|h264|h265|fi|fil|film|filmh|filmho|filmhou|filmhous|filmhouse|telegram|d)(?:_\d+)*$", "", norm)
         norm = re.sub(r"_\d{4}$", "", norm)
 
     # Known franchise aliases
@@ -402,10 +405,16 @@ def get_auditor_canonical_key(raw_title: str) -> str:
         or "last_airbender" in norm
     ):
         return "avatar_the_last_airbender"
+    if norm == "forever" or norm.startswith("forever_"):
+        return "forever"
     if norm.startswith("macgyver"):
         return "macgyver"
     if norm.startswith("love_in_disguise"):
         return "love_in_disguise"
+    if norm.startswith("maxton_hall"):
+        return "maxton_hall"
+    if norm in ("mother_of_the_bride", "mother_of_the_brides"):
+        return "mother_of_the_brides"
     if norm.startswith("flex_x_cop") or norm.startswith("flexxcop"):
         return "flex_x_cop"
     if norm.startswith("georgie_and_mandy"):
@@ -461,6 +470,11 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
                     item_year = 2016
                     tmdb_id = 67133
                     clean_title = "MacGyver"
+                elif k == "forever":
+                    # Forever in library is the 2025 Netflix series (TMDB ID 248394, Season 1 has 8 episodes)
+                    item_year = 2025
+                    tmdb_id = 248394
+                    clean_title = "Forever"
                 elif k == "avatar_the_last_airbender":
                     clean_title = "Avatar: The Last Airbender"
                     if not tmdb_id:

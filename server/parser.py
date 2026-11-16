@@ -4,11 +4,11 @@ from typing import Dict, Any, Optional
 # Common garbage tags to strip from titles
 CLEANUP_TAGS = [
     r"@[\w\d_\-\.]+",  # Telegram handles like @pharaohsofm
-    r"\b(2160p|4k|1080p|1080i|720p|576p|480p|360p|240p|bd1080p|bd720p|bd480p)\b",
+    r"\b(2160p|4k|1440p|1080p|1080i|720p|576p|540p|480p|360p|240p|bd1080p|bd720p|bd480p)\b",
     r"\b(uhd|fhd|hd|sd|hq)\b",
     r"\b(hd-in|hd_in|hdin|hd-tc|hdtc|hd-cam|hdcam|hd-ts|hdts|hdtv|hdrip)\b",
-    r"\b(bluray|blu-ray|web-dl|webdl|web-rip|webrip|dvdrip|brrip|bdrip|camrip|web|dvd)\b",
-    r"\b(x264|x265|h264|h265|hevc|avc|10bit|8bit|hdr|hdr10|hdr10\+|dovi|dv)\b",
+    r"\b(bluray|blu-ray|web-dl|webdl|web-rip|webrip|web-d|dvdrip|brrip|bdrip|camrip|web|dvd)\b",
+    r"\b(x264|x265|h264|h265|264|265|hevc|avc|10bit|8bit|hdr|hdr10|hdr10\+|dovi|dv)\b",
     r"\b(aac|ac3|dts|dtshd|eac3|mp3|flac|ddp5\.1|dd5\.1|ddp|dd|truehd|atmos)\b",
     r"\b(2ch|2\.0ch|2\.1ch|5\.1ch|6ch|8ch|stereo|mono|ch)\b",
     r"\b(dd5[\.\s]?1|ddp5[\.\s]?1|dd\+?5[\.\s]?1|dts[\.\s]?hd)\b",
@@ -19,10 +19,10 @@ CLEANUP_TAGS = [
     r"\b(repack|proper|remastered|extended|unrated|imax|complete|final)\b",
     r"\b\d+(\.\d+)?\s*(mb|gb)\b",  # File sizes like 800mb, 1.4gb
     r"\b(iq|iqiyi)\b",  # iQIYI streaming platform tag
-    r"\b(fil|filmh|filmhouse|filmhousemain|telefilm|stream)\b",
+    r"\b(fi|fil|filmh|filmho|filmhou|filmhous|filmhouse|filmhousemain|telefilm|telegram|stream|mkv_source|source)\b",
     r"\b(film|movie|full movie)\b",  # Trailing descriptor words
     r"\[.*?\]",  # Bracketed group names like [TGx]
-    r"\(.*?\b(1080p|720p|bluray|web)\b.*?\)",
+    r"\(.*?\b(1080p|720p|540p|480p|bluray|web)\b.*?\)",
 ]
 
 # Words that should NEVER be considered episode titles on their own
@@ -108,7 +108,7 @@ SERIES_PATTERNS = [
 # Pattern for bare episode names with no show name (e.g. "01", "02", "Ep 03", "Episode 4", "S01E05")
 BARE_EPISODE_REGEX = re.compile(r"^[\s\.\-_]*(?:[sS]\d{1,2}[\s\.\-_]*)?(?:[eE]p(?:isode)?|EP|\d{1,3})[\s\.\-_0-9]*$", re.IGNORECASE)
 
-QUALITY_PATTERN = re.compile(r"\b(2160p|4K|1080p|720p|480p|bd1080p|bd720p|bd480p)\b", re.IGNORECASE)
+QUALITY_PATTERN = re.compile(r"\b(2160p|4K|1440p|1080p|720p|576p|540p|480p|360p|240p|bd1080p|bd720p|bd480p)\b", re.IGNORECASE)
 YEAR_PATTERN = re.compile(r"\b(19\d{2}|20\d{2})\b")
 
 
@@ -515,6 +515,13 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             if not episode:
                 episode = 1
 
+        # Strip any residual resolution, codec, season prefix, or truncated watermark tags stuck in clean_title
+        clean_title = re.sub(r"^(?:[sS]\d{1,2}|[sS]eason\s*\d{1,2})\s+", "", clean_title).strip()
+        clean_title = re.sub(r"\b(?:2160p|1440p|1080p|720p|576p|540p|480p|360p|240p|264|265|x264|x265|h264|h265)\b", "", clean_title, flags=re.IGNORECASE).strip()
+        clean_title = re.sub(r"[\s\-_]+(?:telegram|fi|fil|film|filmh|filmho|filmhou|filmhous|d)$", "", clean_title, flags=re.IGNORECASE).strip()
+        clean_title = re.sub(r"\s+", " ", clean_title).strip(" -_.")
+        lower_t = clean_title.lower()
+
         # Canonical Series Normalization (unifies truncated titles and missing apostrophes)
         norm_t = re.sub(r"['’`]", "", lower_t)
         norm_t = re.sub(r"&", "and", norm_t)
@@ -530,6 +537,53 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             clean_title = "Tyler Perry's The Oval"
         elif "zatima" in norm_t:
             clean_title = "Tyler Perry's Zatima"
+        elif norm_t.startswith("all the queens men"):
+            clean_title = "All The Queen's Men"
+            is_series = True
+        elif norm_t.startswith("maxton hall"):
+            clean_title = "Maxton Hall"
+            is_series = True
+        elif norm_t in ("mother of the bride", "mother of the brides") and is_series:
+            clean_title = "Mother Of The Brides"
+        elif norm_t.startswith("love with flaws"):
+            clean_title = "Love With Flaws"
+            is_series = True
+        elif "hotel del luna" in norm_t:
+            clean_title = "Hotel Del Luna"
+            is_series = True
+        elif "early spring" in norm_t:
+            clean_title = "The Early Spring"
+            is_series = True
+        elif "mystic nine" in norm_t:
+            clean_title = "Mystic Nine"
+            is_series = True
+        elif "see you at work tomorrow" in norm_t:
+            clean_title = "See You At Work Tomorrow"
+            is_series = True
+        elif norm_t.startswith("ghost doctor"):
+            clean_title = "Ghost Doctor"
+            is_series = True
+        elif norm_t.startswith("embrace in the dark night"):
+            clean_title = "Embrace In The Dark Night"
+            is_series = True
+        elif "baby sitters club" in norm_t or "babysitters club" in norm_t:
+            clean_title = "The Baby-Sitters Club"
+            is_series = True
+        elif norm_t == "under the dome":
+            clean_title = "Under the Dome"
+            is_series = True
+        elif "its okay to not be okay" in norm_t:
+            clean_title = "It's Okay to Not Be Okay"
+            is_series = True
+        elif "x men the animated" in norm_t or "xmen the animated" in norm_t:
+            clean_title = "X-Men: The Animated Series"
+            is_series = True
+        elif "zoey 102" in lower_raw or ("zoey" in norm_t and episode == 102 and year == 2023):
+            clean_title = "Zoey 102"
+            is_series = False
+            season = None
+            episode = None
+            year = 2023
         elif (
             norm_t.startswith("wings")
             or norm_t.startswith("the wings")
@@ -547,6 +601,11 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             is_series = True
             if not year:
                 year = 2016
+        elif norm_t == "forever":
+            clean_title = "Forever"
+            is_series = True
+            if not year:
+                year = 2025
         elif norm_t == "love in disguise":
             clean_title = "Love in Disguise"
             is_series = True

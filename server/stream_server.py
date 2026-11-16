@@ -969,8 +969,12 @@ def build_api_media_payload() -> dict:
 
             title_clean = str(parsed.get("title") or fn or "Unknown")
             if parsed.get("is_series"):
+                title_clean = re.sub(r"^(?:[sS]\d{1,2}|[sS]eason\s*\d{1,2})\s+", "", title_clean).strip()
                 title_clean = re.sub(r"^(?:the\s+)?(?:end|finale|final)\s+", "", title_clean, flags=re.IGNORECASE).strip()
                 title_clean = re.sub(r"[\s\.\-_]+(?:the\s+)?(?:end|finale|final)$", "", title_clean, flags=re.IGNORECASE).strip()
+                title_clean = re.sub(r"\b(?:2160p|1440p|1080p|720p|576p|540p|480p|360p|240p|264|265|x264|x265|h264|h265)\b", "", title_clean, flags=re.IGNORECASE).strip()
+                title_clean = re.sub(r"[\s\-_]+(?:telegram|fi|fil|film|filmh|filmho|filmhou|filmhous|d)$", "", title_clean, flags=re.IGNORECASE).strip()
+                title_clean = re.sub(r"\s+", " ", title_clean).strip(" -_.")
                 norm_lower = title_clean.lower()
                 if norm_lower.startswith("avatar aang") or "last airbender" in norm_lower:
                     title_clean = "Avatar: The Last Airbender"
@@ -982,11 +986,24 @@ def build_api_media_payload() -> dict:
                     parsed["title"] = "MacGyver"
                     parsed["year"] = 2016
                     parsed["tmdb_id"] = 67133
+                elif norm_lower == "forever":
+                    title_clean = "Forever"
+                    parsed["title"] = "Forever"
+                    parsed["year"] = 2025
+                    parsed["tmdb_id"] = 248394
                 elif norm_lower == "love in disguise":
                     title_clean = "Love in Disguise"
                     parsed["title"] = "Love in Disguise"
                     if not parsed.get("year"):
                         parsed["year"] = 2026
+                elif norm_lower.startswith("maxton hall"):
+                    title_clean = "Maxton Hall"
+                    parsed["title"] = "Maxton Hall"
+                elif norm_lower in ("mother of the bride", "mother of the brides"):
+                    title_clean = "Mother Of The Brides"
+                    parsed["title"] = "Mother Of The Brides"
+                else:
+                    parsed["title"] = title_clean
 
             if parsed.get("is_series"):
                 s_num = safe_int(parsed.get("season"), default=1)
