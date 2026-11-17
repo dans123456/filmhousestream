@@ -163,6 +163,14 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
     # Strip ripper / release group tags like Filmhousemain
     name = re.sub(r"[\s\._-]+filmhousemain\b", "", name, flags=re.IGNORECASE)
 
+    # Strip channel watermark signatures like "- Telegram .F." or "Telegram F"
+    name = re.sub(r"[\s\._-]+telegram[\s\._-]*[a-z]?[\s\._-]+(?=[sS]\d|\d{1,3}|[eE]\d|1080|720|480|2160|\b)", ".", name, flags=re.IGNORECASE)
+    name = re.sub(r"[\s\._-]+telegram[\s\._-]*[a-z]?$", "", name, flags=re.IGNORECASE)
+
+    # Flex Cop / Flex X Cop normalization
+    name = re.sub(r"\bflex[\s\._-]*cop\b", "Flex.X.Cop", name, flags=re.IGNORECASE)
+    name = re.sub(r"\bflexxcop\b", "Flex.X.Cop", name, flags=re.IGNORECASE)
+
     # Handle leading year + separator: e.g. "2019.-.In.1917" or "2019 - 1917"
     lead_year_m = re.match(r"^(\d{4})[\s\._-]+(?:-|in)?[\s\._-]+(\d{4})\b", name, re.IGNORECASE)
     if lead_year_m:
@@ -322,7 +330,7 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
                         season = 1
                         episode = pot_num
                         working_name = pot_title
-                elif any(k in lower_name for k in ("flex x cop", "flexxcop", "mr bean", "mr. bean")):
+                elif any(k in lower_name for k in ("flex x cop", "flexxcop", "flex cop", "mr bean", "mr. bean")):
                     is_series = True
                     season = 1
                     num_match = re.search(r"\b(\d{1,3})\b", name)
@@ -518,7 +526,7 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
         # Strip any residual resolution, codec, season prefix, or truncated watermark tags stuck in clean_title
         clean_title = re.sub(r"^(?:[sS]\d{1,2}|[sS]eason\s*\d{1,2})\s+", "", clean_title).strip()
         clean_title = re.sub(r"\b(?:2160p|1440p|1080p|720p|576p|540p|480p|360p|240p|264|265|x264|x265|h264|h265)\b", "", clean_title, flags=re.IGNORECASE).strip()
-        clean_title = re.sub(r"[\s\-_]+(?:telegram|fi|fil|film|filmh|filmho|filmhou|filmhous|d)$", "", clean_title, flags=re.IGNORECASE).strip()
+        clean_title = re.sub(r"[\s\-_]+(?:telegram(?:\s+[a-z])?|fi|fil|film|filmh|filmho|filmhou|filmhous|d)$", "", clean_title, flags=re.IGNORECASE).strip()
         clean_title = re.sub(r"\s+", " ", clean_title).strip(" -_.")
         lower_t = clean_title.lower()
 
@@ -527,7 +535,10 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
         norm_t = re.sub(r"&", "and", norm_t)
         norm_t = re.sub(r"\s+", " ", norm_t).strip()
 
-        if norm_t.startswith("georgie and mandy"):
+        if norm_t.startswith("flex cop") or norm_t.startswith("flex x cop") or norm_t.startswith("flexxcop"):
+            clean_title = "Flex X Cop"
+            is_series = True
+        elif norm_t.startswith("georgie and mandy"):
             clean_title = "Georgie & Mandy's First Marriage"
         elif "ruthless" in norm_t:
             clean_title = "Tyler Perry's Ruthless"
@@ -792,7 +803,7 @@ def detect_category(raw_filename: str, clean_title: str, is_series: bool) -> str
         r"\b(the glory|vincenzo|itaewon class|descendants of the sun|goblin|business proposal)\b",
         r"\b(twinkling watermelon|marry my husband|lovely runner|hotel del luna|strong girl)\b",
         r"\b(weightlifting fairy|true beauty|extraordinary attorney woo|sweet home|moving|pyramid game)\b",
-        r"\b(a good day to be a dog|hidden love|mr queen|mr. queen|flex x cop|flexxcop|a killer paradox|killer paradox|my demon)\b",
+        r"\b(a good day to be a dog|hidden love|mr queen|mr. queen|flex x cop|flexxcop|flex cop|a killer paradox|killer paradox|my demon)\b",
     ]
     for pat in kdrama_patterns:
         if re.search(pat, text):

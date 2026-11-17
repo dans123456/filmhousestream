@@ -1928,7 +1928,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       if (norm === 'mother_of_the_bride' || norm === 'mother_of_the_brides') return 'mother_of_the_brides';
       if (norm.startsWith('a_good_day_to_be_a_dog') || norm.includes('good_day_to_be_a_dog')) return 'a_good_day_to_be_a_dog';
       if (norm.startsWith('hidden_love')) return 'hidden_love';
-      if (norm.startsWith('flex_x_cop') || norm.startsWith('flexxcop') || norm.includes('flex_x_cop')) return 'flex_x_cop';
+      if (norm.startsWith('flex_x_cop') || norm.startsWith('flexxcop') || norm.startsWith('flex_cop') || norm.includes('flex_x_cop') || norm.includes('flex_cop')) return 'flex_x_cop';
       if (norm.startsWith('mr_bean') || norm.startsWith('mrbean') || (norm.includes('bean') && !norm.includes('lord_of_the_beans'))) return 'mr_bean';
       if (norm.startsWith('georgie_and_mandy')) return 'georgie_and_mandys_first_marriage';
       if (norm.includes('ruthless')) return 'tyler_perrys_ruthless';

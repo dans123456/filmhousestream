@@ -77,7 +77,7 @@ def get_canonical_item_key(parsed: dict, file_name: str) -> str:
         norm = "tyler_perrys_ruthless"
     elif "sista" in norm:
         norm = "tyler_perrys_sistas"
-    elif norm.startswith("flex_x_cop") or norm.startswith("flexxcop"):
+    elif norm.startswith("flex_x_cop") or norm.startswith("flexxcop") or norm.startswith("flex_cop") or norm == "flex_cop":
         norm = "flex_x_cop"
 
     is_series = bool(p.get("is_series"))

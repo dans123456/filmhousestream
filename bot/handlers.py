@@ -900,7 +900,7 @@ def register_handlers(app: Client):
         )
         await message.reply_text(status_text, reply_markup=get_main_menu_keyboard())
 
-    @app.on_message(filters.command("clear_bin") & filters.private)
+    @app.on_message(filters.command(["clear_bin", "manage", "dedupe", "deduplicate"]) & filters.private)
     async def clear_bin_command_handler(client: Client, message: Message):
         """Triggers the interactive Bin Storage Manager."""
         if not is_authorized(message.from_user.id):

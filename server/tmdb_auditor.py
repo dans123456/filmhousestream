@@ -415,7 +415,7 @@ def get_auditor_canonical_key(raw_title: str) -> str:
         return "maxton_hall"
     if norm in ("mother_of_the_bride", "mother_of_the_brides"):
         return "mother_of_the_brides"
-    if norm.startswith("flex_x_cop") or norm.startswith("flexxcop"):
+    if norm.startswith("flex_x_cop") or norm.startswith("flexxcop") or norm.startswith("flex_cop") or norm == "flex_cop":
         return "flex_x_cop"
     if norm.startswith("georgie_and_mandy"):
         return "georgie_and_mandys_first_marriage"

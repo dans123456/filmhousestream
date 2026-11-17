@@ -869,7 +869,7 @@ def build_api_media_payload() -> dict:
                     parsed["episode"] = int(m.group(1)) if m else 999
                 parsed["season"] = parsed.get("season") or 1
             elif not parsed.get("is_series"):
-                if "flex x cop" in lower_fn or "flexxcop" in lower_fn or "flex x cop" in lower_title:
+                if "flex x cop" in lower_fn or "flexxcop" in lower_fn or "flex cop" in lower_fn or "flex x cop" in lower_title or "flex cop" in lower_title:
                     parsed["is_series"] = True
                     parsed["title"] = "Flex X Cop"
                     parsed["category"] = "kdrama"
@@ -973,10 +973,16 @@ def build_api_media_payload() -> dict:
                 title_clean = re.sub(r"^(?:the\s+)?(?:end|finale|final)\s+", "", title_clean, flags=re.IGNORECASE).strip()
                 title_clean = re.sub(r"[\s\.\-_]+(?:the\s+)?(?:end|finale|final)$", "", title_clean, flags=re.IGNORECASE).strip()
                 title_clean = re.sub(r"\b(?:2160p|1440p|1080p|720p|576p|540p|480p|360p|240p|264|265|x264|x265|h264|h265)\b", "", title_clean, flags=re.IGNORECASE).strip()
-                title_clean = re.sub(r"[\s\-_]+(?:telegram|fi|fil|film|filmh|filmho|filmhou|filmhous|d)$", "", title_clean, flags=re.IGNORECASE).strip()
+                title_clean = re.sub(r"[\s\-_]+(?:telegram(?:\s+[a-z])?|fi|fil|film|filmh|filmho|filmhou|filmhous|d)$", "", title_clean, flags=re.IGNORECASE).strip()
                 title_clean = re.sub(r"\s+", " ", title_clean).strip(" -_.")
                 norm_lower = title_clean.lower()
-                if norm_lower.startswith("avatar aang") or "last airbender" in norm_lower:
+                if norm_lower.startswith("flex cop") or norm_lower.startswith("flex x cop") or norm_lower.startswith("flexxcop"):
+                    title_clean = "Flex X Cop"
+                    parsed["title"] = "Flex X Cop"
+                    parsed["category"] = "kdrama"
+                    if not parsed.get("tmdb_id"):
+                        parsed["tmdb_id"] = 220074
+                elif norm_lower.startswith("avatar aang") or "last airbender" in norm_lower:
                     title_clean = "Avatar: The Last Airbender"
                     parsed["title"] = "Avatar: The Last Airbender"
                     if not parsed.get("tmdb_id"):
