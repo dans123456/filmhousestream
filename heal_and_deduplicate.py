@@ -54,14 +54,14 @@ def heal():
             ep_num = int(ep_m.group(1)) if ep_m else 1
             golden = f"Its.Okay.To.Not.Be.Okay.S01E{ep_num:02d}.720p.mp4"
             r["file_name"] = golden
-            r["category"] = "k-drama"
+            r["category"] = "kdrama"
             parsed["title"] = "It's Okay to Not Be Okay"
             parsed["clean_name"] = f"It's Okay to Not Be Okay S01E{ep_num:02d} (720p)"
             parsed["golden_name"] = golden
             parsed["is_series"] = True
             parsed["season"] = 1
             parsed["episode"] = ep_num
-            parsed["category"] = "k-drama"
+            parsed["category"] = "kdrama"
             r["parsed"] = parsed
             kdg_healed += 1
 

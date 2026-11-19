@@ -1,4 +1,5 @@
 import os
+import html
 import shutil
 import re
 import math
@@ -353,13 +354,21 @@ PLAYER_HTML_TEMPLATE = """<!DOCTYPE html>
 
 def format_bytes(size: int) -> str:
     """Format bytes to human readable string (MB, GB)."""
-    if not size:
+    if not size or size <= 0:
         return "0 B"
-    units = ["B", "KB", "MB", "GB", "TB"]
-    i = int(math.floor(math.log(size, 1024)))
+    units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    i = min(int(math.floor(math.log(size, 1024))), len(units) - 1)
     p = math.pow(1024, i)
     s = round(size / p, 2)
     return f"{s} {units[i]}"
+
+
+def make_content_disposition(file_name: str) -> str:
+    """Builds an RFC 5987 safe Content-Disposition header for ASCII and Unicode filenames."""
+    clean = re.sub(r'[\r\n"]+', "", str(file_name or "video.mp4")).strip() or "video.mp4"
+    ascii_fallback = clean.encode("ascii", "ignore").decode("ascii").strip() or "video.mp4"
+    utf8_encoded = urllib.parse.quote(clean, safe="")
+    return f'inline; filename="{ascii_fallback}"; filename*=UTF-8\'\'{utf8_encoded}'
 
 
 async def handle_home(request: web.Request) -> web.Response:
@@ -398,19 +407,19 @@ async def handle_watch(request: web.Request) -> web.Response:
 
     stream_url = f"{config.SERVER_URL}/stream/{token}"
 
-    html = PLAYER_HTML_TEMPLATE.format(
-        title=clean_name,
-        clean_name=clean_name,
-        quality=quality,
-        file_name=file_name,
-        file_size_formatted=format_bytes(file_size),
-        stream_url=stream_url,
-        mime_type=mime_type,
-        token=token,
+    rendered_html = PLAYER_HTML_TEMPLATE.format(
+        title=html.escape(str(clean_name), quote=True),
+        clean_name=html.escape(str(clean_name), quote=True),
+        quality=html.escape(str(quality), quote=True),
+        file_name=html.escape(str(file_name), quote=True),
+        file_size_formatted=html.escape(format_bytes(file_size), quote=True),
+        stream_url=html.escape(stream_url, quote=True),
+        mime_type=html.escape(str(mime_type), quote=True),
+        token=html.escape(str(token), quote=True),
     )
 
     return web.Response(
-        text=html,
+        text=rendered_html,
         content_type="text/html",
         headers={
             "Access-Control-Allow-Origin": "*",
@@ -522,7 +531,7 @@ async def stream_transmuxed_mp4(request: web.Request, message, file_name: str) -
             *cmd,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.DEVNULL
         )
     except Exception as e:
         logger.warning(f"[Transmux] Failed to spawn ffmpeg: {e}")
@@ -531,7 +540,7 @@ async def stream_transmuxed_mp4(request: web.Request, message, file_name: str) -
     headers = {
         "Content-Type": "video/mp4",
         "Accept-Ranges": "none",
-        "Content-Disposition": f'inline; filename="{file_name}.mp4"',
+        "Content-Disposition": make_content_disposition(f"{file_name}.mp4"),
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
         "Access-Control-Allow-Headers": "Range, Content-Range, Origin, Accept, Content-Type",
@@ -649,7 +658,7 @@ async def handle_stream(request: web.Request) -> web.StreamResponse:
     base_headers = {
         "Content-Type": mime_type,
         "Accept-Ranges": "bytes",
-        "Content-Disposition": f'inline; filename="{file_name}"',
+        "Content-Disposition": make_content_disposition(file_name),
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
         "Access-Control-Allow-Headers": "Range, Content-Range, Origin, Accept, Content-Type",
@@ -664,6 +673,9 @@ async def handle_stream(request: web.Request) -> web.StreamResponse:
             "Content-Length": str(file_size),
         }
         return web.Response(status=200, headers=headers)
+
+    if file_size <= 0:
+        return web.Response(status=200, headers={**base_headers, "Content-Length": "0"})
 
     # 4. Parse Range Header: bytes=start-end (including Safari bytes=0-1 test)
     range_header = request.headers.get("Range")
@@ -1102,8 +1114,17 @@ async def handle_api_media(request: web.Request) -> web.Response:
             headers={"Access-Control-Allow-Origin": "*"}
         )
 
-    # 2. Check admin status for capabilities
+    # 2. Strict Admin Verification
     is_admin = verify_admin_access(request)
+    if not is_admin:
+        return web.json_response(
+            {"success": False, "error": "Unauthorized: FilmHouse Admin authorization required."},
+            status=401,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
+            }
+        )
 
     # 3. Check fast in-memory cache
     global _api_media_cache, _api_media_cache_time, _api_media_cache_json, _api_media_cache_gzip
@@ -1245,7 +1266,11 @@ async def handle_api_edit(request: web.Request) -> web.Response:
 
 
 async def handle_api_audit(request: web.Request) -> web.Response:
-    """Returns cached series completeness audit data."""
+    """Returns cached series completeness audit data (ADMIN ONLY)."""
+    if not check_rate_limit(request, max_requests=120, window_sec=60):
+        return web.json_response({"success": False, "error": "Rate limit exceeded."}, status=429, headers={"Access-Control-Allow-Origin": "*"})
+    if not verify_admin_access(request):
+        return web.json_response({"success": False, "error": "Unauthorized: FilmHouse Admin authorization required."}, status=401, headers={"Access-Control-Allow-Origin": "*"})
     from server.tmdb_auditor import load_cached_audit
     data = load_cached_audit()
     return web.json_response({"success": True, "audit": data}, headers={
@@ -1255,7 +1280,11 @@ async def handle_api_audit(request: web.Request) -> web.Response:
 
 
 async def handle_api_audit_sync(request: web.Request) -> web.Response:
-    """Triggers background series completeness audit using TMDB."""
+    """Triggers background series completeness audit using TMDB (ADMIN ONLY)."""
+    if not check_rate_limit(request, max_requests=10, window_sec=60):
+        return web.json_response({"success": False, "error": "Rate limit exceeded."}, status=429, headers={"Access-Control-Allow-Origin": "*"})
+    if not verify_admin_access(request):
+        return web.json_response({"success": False, "error": "Unauthorized: FilmHouse Admin authorization required."}, status=401, headers={"Access-Control-Allow-Origin": "*"})
     try:
         from server.tmdb_auditor import run_series_completeness_audit
         asyncio.create_task(run_series_completeness_audit(force_tmdb=True))
@@ -1264,7 +1293,7 @@ async def handle_api_audit_sync(request: web.Request) -> web.Response:
             "message": "Audit started in background."
         }, headers={
             "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Telegram-Init-Data, X-Admin-Key",
         })
     except Exception as e:
         logger.error(f"Error starting audit sync: {e}", exc_info=True)

@@ -86,6 +86,8 @@ _batch_locks: dict[int, asyncio.Lock] = {}
 _processing_locks: dict[int, asyncio.Lock] = {}
 # For Option B: user_id -> {"items": [...], "status_msg": Message} waiting for title text from admin
 _pending_title_batches: dict[int, dict] = {}
+# Active cancellation flags so /cancel or [Cancel Batch] stops running loops cleanly
+_cancelled_users: set[int] = set()
 
 
 def get_user_lock(user_id: int) -> asyncio.Lock:
@@ -181,6 +183,7 @@ async def flush_batch(client: Client, user_id: int):
     # Ensure only one batch processes at a time per user to prevent concurrent channel spam & Telegram FloodWaits
     proc_lock = get_processing_lock(user_id)
     async with proc_lock:
+        _cancelled_users.discard(user_id)
         # Case 1: Single file forwarded (Movie or 1 Episode)
         if len(items) == 1:
             item = items[0]
@@ -297,25 +300,24 @@ async def flush_batch(client: Client, user_id: int):
             has_qual_diff = len(set(qualities)) > 1 and len(qualities) == len(items)
             has_year = any(it["parsed"].get("year") for it in items)
 
-            # Extract distinct episode numbers (excluding year, quality tags, and file sizes)
-            distinct_ep_nums = set()
+            # Extract distinct episode numbers per item (excluding year, quality tags, and file sizes)
+            item_ep_nums = []
             for it in items:
                 clean_fn = re.sub(r"\b(19\d{2}|20\d{2})\b", "", it["file_name"])
                 clean_fn = re.sub(r"\b(2160p|1080p|720p|480p|360p|4k)\b", "", clean_fn, flags=re.IGNORECASE)
                 clean_fn = re.sub(r"\b\d+(?:mb|gb)\b", "", clean_fn, flags=re.IGNORECASE)
                 m = re.search(r"\b(?:ep|episode|e)?\s*0?(\d{1,3})\b", clean_fn, re.IGNORECASE)
-                if m:
-                    distinct_ep_nums.add(int(m.group(1)))
+                item_ep_nums.append(int(m.group(1)) if m else None)
+            distinct_ep_nums = {n for n in item_ep_nums if n is not None}
 
             # If all files share the same movie title AND (have different qualities or a release year), AND don't have distinct episode numbers:
             # IT IS 100% A MULTI-QUALITY MOVIE BATCH (e.g. Elf 2003 in 720p and 1080p)!
             if same_title and (has_qual_diff or has_year) and len(distinct_ep_nums) <= 1:
                 all_movies = True
             elif len(distinct_ep_nums) >= 2 and len(distinct_ep_nums) == len(items):
-                # Genuine TV series with distinct episode sequence (e.g. 1, 2, 3...)
-                logger.info(f"Auto-Promoting multi-file batch ({len(items)} files) to Series Batch (Distinct episodic numbers detected: {distinct_ep_nums})")
-                sorted_eps = sorted(list(distinct_ep_nums))
-                for it, ep_num in zip(items, sorted_eps):
+                # Genuine TV series with distinct episode sequence (preserve each item's exact episode number)
+                logger.info(f"Auto-Promoting multi-file batch ({len(items)} files) to Series Batch (Distinct episodic numbers detected: {sorted(distinct_ep_nums)})")
+                for it, ep_num in zip(items, item_ep_nums):
                     it["parsed"]["is_series"] = True
                     it["parsed"]["season"] = it["parsed"].get("season") or 1
                     it["parsed"]["episode"] = ep_num
@@ -374,6 +376,10 @@ async def process_movies_batch(client: Client, user_id: int, items: list, status
         upgraded_count = 0
 
         for it in m_items:
+            if user_id in _cancelled_users:
+                _cancelled_users.discard(user_id)
+                await safe_update_status(client, user_id, status_msg, "🛑 **Movie batch cancelled.**")
+                return
             raw_msg: Message = it["msg"]
             processed_count += 1
             new_size_bytes = (raw_msg.video.file_size if raw_msg.video else (raw_msg.document.file_size if raw_msg.document else 0))
@@ -619,7 +625,15 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
             groups[key] = []
         groups[key].append(item)
 
-    for (show_title, season), ep_items in groups.items():
+    for group_idx, ((show_title, season), ep_items) in enumerate(groups.items()):
+        if user_id in _cancelled_users:
+            _cancelled_users.discard(user_id)
+            await safe_update_status(client, user_id, status_msg, "🛑 **Series batch cancelled.**")
+            return
+
+        # For subsequent show/season groups in the same batch, send a fresh message so previous copy links aren't overwritten
+        group_status_msg = status_msg if group_idx == 0 else None
+
         # Deduplicate identical episodes in the batch (keeping the largest file size)
         deduped_eps: dict[int, dict] = {}
         for it in ep_items:
@@ -640,9 +654,9 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
             [InlineKeyboardButton("❌ Cancel Batch", callback_data="batch_cancel_now")]
         ])
 
-        status_msg = await safe_update_status(
-            client, user_id, status_msg,
-            f"⏳ **Batch Processing Started:**\n📦 Sorting {total_eps} episodes in strict numerical order...",
+        group_status_msg = await safe_update_status(
+            client, user_id, group_status_msg,
+            f"⏳ **Batch Processing Started ({show_title} S{season:02d}):**\n📦 Sorting {total_eps} episodes in strict numerical order...",
             reply_markup=refresh_btn
         )
 
@@ -651,6 +665,10 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
         upgraded_count = 0
         last_status_edit = 0.0
         for idx, ep_item in enumerate(ep_items, start=1):
+            if user_id in _cancelled_users:
+                _cancelled_users.discard(user_id)
+                await safe_update_status(client, user_id, group_status_msg, f"🛑 **Batch cancelled** after {len(processed_links)} episode(s).")
+                return
             raw_msg: Message = ep_item["msg"]
             new_size_bytes = (raw_msg.video.file_size if raw_msg.video else (raw_msg.document.file_size if raw_msg.document else 0))
             dup_info = find_library_duplicate(ep_item["parsed"], ep_item["file_name"], new_size_bytes)
@@ -682,7 +700,7 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
                     forwarded = await safe_copy_message(
                         raw_msg,
                         config.BIN_CHANNEL_ID,
-                        status_msg=status_msg,
+                        status_msg=group_status_msg,
                         ep_info=f"at episode {idx}/{total_eps}"
                     )
                     replace_tracked_file(
@@ -698,7 +716,7 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
                     forwarded = await safe_copy_message(
                         raw_msg,
                         config.BIN_CHANNEL_ID,
-                        status_msg=status_msg,
+                        status_msg=group_status_msg,
                         ep_info=f"at episode {idx}/{total_eps}"
                     )
                     record_indexed_file(
@@ -731,8 +749,8 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
                     bar_filled = percent // 10
                     bar = "█" * bar_filled + "░" * (10 - bar_filled)
                     remaining = total_eps - idx
-                    status_msg = await safe_update_status(
-                        client, user_id, status_msg,
+                    group_status_msg = await safe_update_status(
+                        client, user_id, group_status_msg,
                         f"⏳ **Storing & Indexing Episodes**\n\n"
                         f"📊 Progress: **{idx} / {total_eps}** ({remaining} remaining)\n"
                         f"`[{bar}] {percent}%`\n\n"
@@ -745,6 +763,13 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
                 await asyncio.sleep(0.4)
             except Exception as e:
                 logger.error(f"Error forwarding episode {idx}: {e}")
+
+        if not processed_links:
+            await safe_update_status(
+                client, user_id, group_status_msg,
+                f"⚠️ **No episodes were successfully indexed for {show_title} — Season {season}.**\nPlease try forwarding them again."
+            )
+            continue
 
         # Quick TMDB Audit for this Show & Season
         audit_note = ""
@@ -812,7 +837,8 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
             body_text = f"{header}```{code_block}```"
 
             reply_markup = InlineKeyboardMarkup(buttons) if c_idx == 0 else None
-            status_msg = await safe_update_status(client, user_id, status_msg, body_text, reply_markup=reply_markup)
+            target_msg = group_status_msg if c_idx == 0 else None
+            group_status_msg = await safe_update_status(client, user_id, target_msg, body_text, reply_markup=reply_markup)
 
 
 def register_handlers(app: Client):
@@ -866,11 +892,11 @@ def register_handlers(app: Client):
         help_text = (
             "🌟 **FilmHouse Stream Bot Master Guide:**\n\n"
             "🎬 **1. Movies:**\n"
-            "• Forward single movie file $\\rightarrow$ receive instant stream & Blogger links.\n"
-            "• Forward 2 qualities (1080p and 720p) $\\rightarrow$ automatically groups as a **Multi-Quality Movie Card**.\n\n"
+            "• Forward single movie file → receive instant stream & Blogger links.\n"
+            "• Forward 2 qualities (1080p and 720p) → automatically groups as a **Multi-Quality Movie Card**.\n\n"
             "📺 **2. TV Series:**\n"
             "• Select up to 60 episodes and forward all together.\n"
-            "• Bot buffers, numerically sorts strictly Ep 1 $\\rightarrow$ Ep 60.\n"
+            "• Bot buffers, numerically sorts strictly Ep 1 → Ep 60.\n"
             "• Delivers a clean continuous Option A message with all links ready to copy.\n\n"
             "🌟 **3. Golden Naming Format:**\n"
             "• Movies: `Movie.Title.Year.1080p.mkv`\n"
@@ -962,6 +988,7 @@ def register_handlers(app: Client):
 
         lock = get_user_lock(user_id)
         async with lock:
+            _cancelled_users.add(user_id)
             buf = _batch_buffers.pop(user_id, None)
             if buf and buf.get("task"):
                 buf["task"].cancel()
@@ -1062,11 +1089,11 @@ def register_handlers(app: Client):
         help_text = (
             "🌟 **FilmHouse Stream Bot Master Guide:**\n\n"
             "🎬 **1. Movies:**\n"
-            "• Forward single movie file $\\rightarrow$ receive instant stream & Blogger links.\n"
-            "• Forward 2 qualities (1080p and 720p) $\\rightarrow$ automatically groups as a **Multi-Quality Movie Card**.\n\n"
+            "• Forward single movie file → receive instant stream & Blogger links.\n"
+            "• Forward 2 qualities (1080p and 720p) → automatically groups as a **Multi-Quality Movie Card**.\n\n"
             "📺 **2. TV Series:**\n"
             "• Select up to 60 episodes and forward all together.\n"
-            "• Bot buffers, numerically sorts strictly Ep 1 $\\rightarrow$ Ep 60.\n"
+            "• Bot buffers, numerically sorts strictly Ep 1 → Ep 60.\n"
             "• Delivers a clean continuous Option A message with all links ready to copy.\n\n"
             "🌟 **3. Golden Naming Format:**\n"
             "• Movies: `Movie.Title.Year.1080p.mkv`\n"
@@ -1295,9 +1322,9 @@ def register_handlers(app: Client):
             "📱 **How to Clear Directly in Telegram Channel:**\n\n"
             "If you want to clear older test files that were uploaded before the bot started tracking:\n\n"
             "1. Open your **Private Bin Channel** in Telegram.\n"
-            "2. Long-press any message $\\rightarrow$ tap **Select**.\n"
+            "2. Long-press any message → tap **Select**.\n"
             "3. Select all the test messages you want to remove.\n"
-            "4. Tap the **Trash Can icon** (Delete) $\\rightarrow$ choose **Delete for Everyone**.\n\n"
+            "4. Tap the **Trash Can icon** (Delete) → choose **Delete for Everyone**.\n\n"
             "Telegram will erase them instantly without needing any bot command!"
         )
         buttons = [[InlineKeyboardButton("🔙 Back to Bin Manager", callback_data="bin_manage")]]
@@ -1355,6 +1382,7 @@ def register_handlers(app: Client):
 
         lock = get_user_lock(user_id)
         async with lock:
+            _cancelled_users.add(user_id)
             buf = _batch_buffers.pop(user_id, None)
             if buf and buf.get("task"):
                 buf["task"].cancel()
@@ -1370,7 +1398,7 @@ def register_handlers(app: Client):
     # Option B: Title Reply Listener for Nameless Batches
     # ==========================================
 
-    @app.on_message(filters.text & filters.private & ~filters.command(["start", "menu", "help", "status", "clear_bin", "purge_nameless", "deletenameless", "library", "app", "cancel", "audit", "checkepisodes", "single_episodes", "synctmdb"]))
+    @app.on_message(filters.text & filters.private & ~filters.command(["start", "menu", "help", "status", "clear_bin", "manage", "dedupe", "deduplicate", "purge_nameless", "deletenameless", "library", "app", "cancel", "audit", "checkepisodes", "single_episodes", "synctmdb"]))
     async def title_reply_handler(client: Client, message: Message):
         user_id = message.from_user.id
         if not is_authorized(user_id):

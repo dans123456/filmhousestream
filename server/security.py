@@ -129,10 +129,16 @@ def check_rate_limit(request: web.Request, max_requests: int = 60, window_sec: i
     if is_ip_blocked(ip):
         return False
 
+    if len(_request_records) > 1000:
+        stale_ips = [k for k, ts in _request_records.items() if not ts or (now - ts[-1]) >= window_sec]
+        for k in stale_ips:
+            _request_records.pop(k, None)
+
     timestamps = _request_records.get(ip, [])
     # Filter out timestamps older than window
     timestamps = [t for t in timestamps if now - t < window_sec]
     if len(timestamps) >= max_requests:
+        _request_records[ip] = timestamps
         return False
 
     timestamps.append(now)

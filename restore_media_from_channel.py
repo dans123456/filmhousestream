@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/env python3
 """
 FilmHouse Stream Engine - Restore & Resync Ledger from Storage Channel
 Fetches messages from the Telegram Bin Channel and restores any missing records

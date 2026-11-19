@@ -116,7 +116,7 @@ async def auto_sync_tunnel_loop():
                     logger.info(f"Detected new Cloudflare Tunnel URL: {latest_url} (was: {config.SERVER_URL})")
                     config.SERVER_URL = latest_url
                     update_env_server_url(latest_url)
-                    update_telegram_menu_button(f"{latest_url}/library")
+                    await asyncio.to_thread(update_telegram_menu_button, f"{latest_url}/library")
         except Exception as e:
             logger.error(f"Error in tunnel sync loop: {e}")
 

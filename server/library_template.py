@@ -1799,6 +1799,18 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         const titleMatch = (item.display_name || item.file_name || item.series_title || '').toLowerCase().includes(query);
         if (!titleMatch) return false;
         if (currentFilter === "all") return true;
+        if (currentFilter === "incomplete" || currentFilter === "single_ep") {
+          if (!item.is_series || !item.series_title) return false;
+          const k = getCanonicalSeriesKey(item.series_title);
+          if (window.completedSeasons && window.completedSeasons.has(k)) return false;
+          const auditInfo = findAuditInfo(k, item.series_title);
+          if (!auditInfo) return false;
+          if (auditInfo.seasons_summary && Array.isArray(auditInfo.seasons_summary)) {
+            const active = auditInfo.seasons_summary.filter(s => !(window.completedSeasons && window.completedSeasons.has(`${k}__s${s.season}`)));
+            if (active.length === 0) return false;
+          }
+          return true;
+        }
         const itemCat = item.category || (item.is_series ? 'series' : 'movies');
         return itemCat === currentFilter;
       });
@@ -1951,7 +1963,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       if (norm.includes('anikulapo')) return 'anikulapo_rise_of_the_spectre';
       if (norm.startsWith('aiyetoro')) return 'aiyetoro_town';
       if (norm.startsWith('testament')) return 'the_testaments';
-      if (norm.includes('aang') || norm.includes('airbender')) return 'avatar_aang_the_last_airbender';
+      if (norm.includes('aang') || norm.includes('airbender')) return 'avatar_the_last_airbender';
       if (norm.includes('nero_the_assassin')) return 'nero_the_assassin';
 
       return norm;
@@ -1995,7 +2007,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       if (col.includes('anikulapo')) return 'Aníkúlápó: Rise of the Spectre';
       if (col.startsWith('aiyetoro')) return 'Aiyetoro Town';
       if (col.startsWith('testament')) return 'The Testaments';
-      if (col.includes('aang') || col.includes('airbender')) return 'Avatar Aang: The Last Airbender';
+      if (col.includes('aang') || col.includes('airbender')) return 'Avatar: The Last Airbender';
       if (col.includes('nerotheassassin')) return 'Néro The Assassin';
 
       if (col.startsWith('maxtonhall')) return 'Maxton Hall';
@@ -2349,21 +2361,22 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       renderMedia();
     }
 
-    let currentCategoryTargetMid = null;
+    let currentCategoryTargetMids = [];
     let isBulkCategoryTarget = false;
 
-    function openCategoryModal(event, messageId) {
+    function openCategoryModal(event, messageIdOrIds) {
       if (event) event.stopPropagation();
-      currentCategoryTargetMid = messageId;
+      currentCategoryTargetMids = Array.isArray(messageIdOrIds) ? messageIdOrIds.filter(Boolean) : (messageIdOrIds ? [messageIdOrIds] : []);
       isBulkCategoryTarget = false;
-      document.getElementById('catModalTitle').textContent = 'Change Category';
-      document.getElementById('catModalDesc').textContent = 'Select a new category for this media:';
+      const count = currentCategoryTargetMids.length;
+      document.getElementById('catModalTitle').textContent = count > 1 ? `Change Category (${count} Files)` : 'Change Category';
+      document.getElementById('catModalDesc').textContent = count > 1 ? `Select a new category for all ${count} files in this group:` : 'Select a new category for this media:';
       document.getElementById('categoryModal').style.display = 'flex';
     }
 
     function openBulkCategoryModal() {
       if (selectedIds.size === 0) return;
-      currentCategoryTargetMid = null;
+      currentCategoryTargetMids = [];
       isBulkCategoryTarget = true;
       document.getElementById('catModalTitle').textContent = 'Change Category (Bulk)';
       document.getElementById('catModalDesc').textContent = `Assign category for all ${selectedIds.size} selected items:`;
@@ -2372,12 +2385,13 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
 
     function closeCategoryModal() {
       document.getElementById('categoryModal').style.display = 'none';
-      currentCategoryTargetMid = null;
+      currentCategoryTargetMids = [];
       isBulkCategoryTarget = false;
     }
 
     async function applyCategoryChange(category) {
-      const mids = isBulkCategoryTarget ? Array.from(selectedIds) : (currentCategoryTargetMid ? [currentCategoryTargetMid] : []);
+      const wasBulk = isBulkCategoryTarget;
+      const mids = wasBulk ? Array.from(selectedIds) : [...currentCategoryTargetMids];
       if (mids.length === 0) {
         closeCategoryModal();
         return;
@@ -2402,7 +2416,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           });
           updateCategoryCounts();
           renderMedia();
-          if (isBulkCategoryTarget) {
+          if (wasBulk) {
             exitSelectMode();
           }
         } else {
@@ -2439,6 +2453,22 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
 
       toggleEditSeriesFields();
       document.getElementById('editModal').style.display = 'flex';
+    }
+
+    window.seriesMetaMap = {};
+
+    function openEditModalForSeriesKey(event, canonicalKey) {
+      if (event) event.stopPropagation();
+      const meta = window.seriesMetaMap && window.seriesMetaMap[canonicalKey];
+      if (!meta) return;
+      openEditModalForSeries(event, meta.firstMid, meta.title, meta.year, meta.category);
+    }
+
+    function openCategoryModalForSeriesKey(event, canonicalKey) {
+      if (event) event.stopPropagation();
+      const meta = window.seriesMetaMap && window.seriesMetaMap[canonicalKey];
+      if (!meta || !meta.mids || meta.mids.length === 0) return;
+      openCategoryModal(event, meta.mids);
     }
 
     function openEditModalForSeries(event, firstMid, seriesTitle, year, category) {
@@ -2671,6 +2701,14 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           }
         }
 
+        window.seriesMetaMap[group.canonicalKey] = {
+          firstMid: group.firstMid,
+          title: group.title,
+          year: group.year,
+          category: group.category,
+          mids: group.allEpisodes.map(ep => ep.message_id).filter(Boolean),
+        };
+
         subHtml += `
         <div class="series-folder-card ${auditInfo ? 'folder-incomplete' : ''}" style="${auditInfo ? 'border-color: rgba(239,68,68,0.4);' : ''}">
           <div class="folder-header" onclick="toggleFolder('${group.canonicalKey}')">
@@ -2698,11 +2736,11 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
             <!-- Row 2: Category, Quality & Complete Toggle Button -->
             <div class="folder-header-actions">
               <div class="folder-actions-left">
-                <span class="badge-category" onclick="openCategoryModal(event, ${group.firstMid})" title="Change Category">${catObj.icon} ${catObj.tag} ▾</span>
+                <span class="badge-category" onclick="openCategoryModalForSeriesKey(event, '${group.canonicalKey}')" title="Change Category for Entire Series">${catObj.icon} ${catObj.tag} ▾</span>
                 <span class="badge-quality">${escapeHtml(group.quality || 'HD')}</span>
               </div>
               <div class="folder-actions-right">
-                <button onclick="openEditModalForSeries(event, ${group.firstMid}, '${escapeHtml(group.title).replace(/'/g, "\\'")}', ${group.year || 'null'}, '${group.category}')" class="btn-rename-series" title="Rename entire series & update year">
+                <button onclick="openEditModalForSeriesKey(event, '${group.canonicalKey}')" class="btn-rename-series" title="Rename entire series & update year">
                   ✏️ Rename
                 </button>
                 <button onclick="toggleSeriesComplete(event, '${group.canonicalKey}')" class="btn-complete-toggle ${isSeriesComplete ? 'is-complete' : ''}" title="${isSeriesComplete ? 'Series marked Complete by Admin. Tap to toggle.' : 'Tap to mark entire Series as Complete'}">
@@ -2861,7 +2899,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
                 <div class="card-title" style="font-size:1.05rem;">🎬 ${escapeHtml(mGroup.title)}</div>
               </div>
               <div style="display:flex; align-items:center; gap:6px;">
-                <span class="badge-category" onclick="openCategoryModal(event, ${mGroup.items[0]?.message_id})" title="Change Category">${catObj.icon} ${catObj.tag} ▾</span>
+                <span class="badge-category" onclick="openCategoryModal(event, [${mGroup.items.map(it => it.message_id).filter(Boolean).join(',')}])" title="Change Category for All Versions">${catObj.icon} ${catObj.tag} ▾</span>
                 <span class="multi-quality-badge">✨ ${mGroup.items.length} Qualities</span>
               </div>
             </div>

@@ -2,25 +2,33 @@ import os
 import secrets
 import hashlib
 from pathlib import Path
+BASE_DIR = Path(__file__).resolve().parent
 try:
     from dotenv import load_dotenv
     # Load .env file from current directory
-    BASE_DIR = Path(__file__).resolve().parent
     load_dotenv(BASE_DIR / ".env")
 except ImportError:
     pass
 
+
+def _env_int(name: str, default: int = 0) -> int:
+    raw = os.getenv(name, "")
+    if not raw or not raw.strip().lstrip("-").isdigit():
+        return default
+    return int(raw.strip())
+
+
 # 1. Telegram API Credentials
-API_ID = int(os.getenv("API_ID", "0"))
+API_ID = _env_int("API_ID", 0)
 API_HASH = os.getenv("API_HASH", "")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 
 # 2. Bin Storage Channel
-BIN_CHANNEL_ID = int(os.getenv("BIN_CHANNEL_ID", "0"))
+BIN_CHANNEL_ID = _env_int("BIN_CHANNEL_ID", 0)
 
 # 3. Web Server Settings
 HOST = os.getenv("HOST", "0.0.0.0")
-PORT = int(os.getenv("PORT", "8080"))
+PORT = _env_int("PORT", 8080)
 SERVER_URL = os.getenv("SERVER_URL", f"http://localhost:{PORT}").rstrip("/")
 BLOGGER_URL = os.getenv("BLOGGER_URL", "https://dans123456.github.io/filmhouse/player.html").rstrip("/")
 

@@ -664,7 +664,7 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             clean_title = "Aníkúlápó: Rise of the Spectre"
             is_series = True
         elif "legend of aang" in norm_t or "aang t l a" in norm_t or "aang tla" in norm_t:
-            clean_title = "Avatar Aang: The Last Airbender"
+            clean_title = "Avatar: The Last Airbender"
             is_series = True
         elif norm_t.startswith("noobees"):
             clean_title = "Noobees"
@@ -698,7 +698,7 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
     # 5. Build Human-Readable Display Name
     if is_series:
         s_str = f"S{season:02d}" if season else "S01"
-        if end_episode:
+        if end_episode and episode is not None:
             e_str = f"E{episode:02d}-E{end_episode:02d}"
         else:
             e_str = f"E{episode:02d}" if episode else "E01"

@@ -16,7 +16,7 @@ module.exports = {
     {
       name: "filmhouse-tunnel",
       script: "/usr/local/bin/cloudflared",
-      args: `tunnel --url http://127.0.0.1:8080 --logfile ${path.join(__dirname, "tunnel.log")}`,
+      args: `tunnel --url http://127.0.0.1:8088 --logfile ${path.join(__dirname, "tunnel.log")}`,
       cwd: __dirname,
       interpreter: "none",
       restart_delay: 5000,

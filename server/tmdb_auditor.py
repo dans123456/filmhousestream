@@ -65,8 +65,10 @@ def toggle_completed_season(key: str, complete: Optional[bool] = None) -> bool:
         new_state = False
 
     try:
-        with open(COMPLETED_SEASONS_FILE, "w", encoding="utf-8") as f:
+        tmp_path = COMPLETED_SEASONS_FILE + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(current, f, indent=2, ensure_ascii=False)
+        os.replace(tmp_path, COMPLETED_SEASONS_FILE)
     except Exception as e:
         logger.error(f"Error saving completed_seasons.json: {e}")
 
@@ -152,8 +154,10 @@ def save_cached_audit(data: Dict[str, Any]):
     _mem_audit_cache = data
     _ensure_data_dir()
     try:
-        with open(AUDIT_CACHE_FILE, "w", encoding="utf-8") as f:
+        tmp_path = AUDIT_CACHE_FILE + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
+        os.replace(tmp_path, AUDIT_CACHE_FILE)
     except Exception as e:
         logger.error(f"Error saving audit cache to disk: {e}")
 
@@ -642,7 +646,7 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
                                 is_movie = True
 
                         # If it's a confirmed movie or TMDB found no TV show, DO NOT classify as incomplete TV series!
-                        if is_movie or not tmdb_res:
+                        if is_movie or not (tmdb_res or tmdb_data):
                             continue
                         else:
                             is_incomplete = True
@@ -662,6 +666,7 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
                         reasons.append(f"Season {s_num} has missing gaps: {format_episode_ranges(gaps)}")
 
                 if is_incomplete:
+                    first_season_eps = next(iter(group["seasons"].values()), [{}])
                     incomplete_list.append({
                         "canonical_key": k,
                         "title": title,
@@ -671,7 +676,7 @@ async def run_series_completeness_audit(force_tmdb: bool = True) -> Dict[str, An
                         "reasons": reasons,
                         "tmdb_id": tmdb_id,
                         "seasons_summary": status_summary,
-                        "sample_file": group["seasons"].get(1, [{}])[0].get("file_name", ""),
+                        "sample_file": first_season_eps[0].get("file_name", "") if first_season_eps else "",
                     })
 
         incomplete_list.sort(key=lambda x: x["title"].lower())
