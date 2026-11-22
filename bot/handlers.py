@@ -192,19 +192,25 @@ async def flush_batch(client: Client, user_id: int):
             file_name = item["file_name"]
             file_size_str = item["file_size_str"]
 
-            # Auto-detect TV Series via TMDB if parser was uncertain
-            if not parsed.get("is_series") and getattr(config, "TMDB_API_KEY", ""):
+            # Auto-detect TV Series via TMDB ONLY if file has no release year and no movie-rip tags,
+            # and ONLY when TMDB TV title strictly matches the parsed title (prevents e.g. "Elf 2003" -> "Otaku Elf")
+            has_movie_tags = bool(re.search(r"\b(bluray|blu-ray|bdrip|brrip|webrip|web-dl|webdl|hdrip|dvdrip|remastered|imax|unrated|extended)\b", file_name, re.IGNORECASE))
+            if not parsed.get("is_series") and not parsed.get("year") and not has_movie_tags and getattr(config, "TMDB_API_KEY", ""):
                 try:
                     from server.tmdb_auditor import search_tmdb_tv
                     import aiohttp
                     async with aiohttp.ClientSession() as s:
-                        tv_match = await search_tmdb_tv(s, parsed.get("title") or file_name)
+                        parsed_title = (parsed.get("title") or file_name).strip()
+                        tv_match = await search_tmdb_tv(s, parsed_title)
                         if tv_match and (tv_match.get("vote_count", 0) >= 3 or tv_match.get("popularity", 0) >= 1.0):
-                            parsed["is_series"] = True
-                            parsed["title"] = tv_match.get("name") or parsed["title"]
-                            parsed["season"] = parsed.get("season") or 1
-                            parsed["episode"] = parsed.get("episode") or 1
-                            logger.info(f"Auto-promoted '{file_name}' to TV Series via TMDB ('{parsed['title']}')")
+                            norm_in = re.sub(r"[^a-z0-9]", "", parsed_title.lower())
+                            norm_tv = re.sub(r"[^a-z0-9]", "", (tv_match.get("name") or "").lower())
+                            if norm_in and norm_in == norm_tv:
+                                parsed["is_series"] = True
+                                parsed["title"] = tv_match.get("name") or parsed["title"]
+                                parsed["season"] = parsed.get("season") or 1
+                                parsed["episode"] = parsed.get("episode") or 1
+                                logger.info(f"Auto-promoted '{file_name}' to TV Series via TMDB ('{parsed['title']}')")
                 except Exception as tmdb_err:
                     logger.debug(f"TMDB single-file check notice: {tmdb_err}")
 
@@ -300,19 +306,22 @@ async def flush_batch(client: Client, user_id: int):
             has_qual_diff = len(set(qualities)) > 1 and len(qualities) == len(items)
             has_year = any(it["parsed"].get("year") for it in items)
 
-            # Extract distinct episode numbers per item (excluding year, quality tags, and file sizes)
+            # Extract distinct episode numbers per item (excluding year, quality, audio/codec tags, and file sizes)
             item_ep_nums = []
             for it in items:
                 clean_fn = re.sub(r"\b(19\d{2}|20\d{2})\b", "", it["file_name"])
-                clean_fn = re.sub(r"\b(2160p|1080p|720p|480p|360p|4k)\b", "", clean_fn, flags=re.IGNORECASE)
-                clean_fn = re.sub(r"\b\d+(?:mb|gb)\b", "", clean_fn, flags=re.IGNORECASE)
-                m = re.search(r"\b(?:ep|episode|e)?\s*0?(\d{1,3})\b", clean_fn, re.IGNORECASE)
+                clean_fn = re.sub(r"\b(2160p|1440p|1080p|720p|576p|540p|480p|360p|4k)\b", "", clean_fn, flags=re.IGNORECASE)
+                clean_fn = re.sub(r"\b(ddp?5[\.\s]?1|dd2[\.\s]?0|5\.1|2\.0|10bit|8bit|6ch|2ch|x264|x265|h264|h265)\b", "", clean_fn, flags=re.IGNORECASE)
+                clean_fn = re.sub(r"\b\d+(?:\.\d+)?\s*(?:mb|gb)\b", "", clean_fn, flags=re.IGNORECASE)
+                m = re.search(r"\b(?:ep|episode|e)\s*0?(\d{1,3})\b", clean_fn, re.IGNORECASE)
+                if not m:
+                    m = re.search(r"\b0?(\d{1,3})\b", clean_fn)
                 item_ep_nums.append(int(m.group(1)) if m else None)
             distinct_ep_nums = {n for n in item_ep_nums if n is not None}
 
-            # If all files share the same movie title AND (have different qualities or a release year), AND don't have distinct episode numbers:
+            # If all files share the same movie title AND (have different qualities or a release year):
             # IT IS 100% A MULTI-QUALITY MOVIE BATCH (e.g. Elf 2003 in 720p and 1080p)!
-            if same_title and (has_qual_diff or has_year) and len(distinct_ep_nums) <= 1:
+            if same_title and (has_qual_diff or has_year):
                 all_movies = True
             elif len(distinct_ep_nums) >= 2 and len(distinct_ep_nums) == len(items):
                 # Genuine TV series with distinct episode sequence (preserve each item's exact episode number)
