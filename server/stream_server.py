@@ -868,7 +868,7 @@ def build_api_media_payload() -> dict:
             # Auto-Heal Series: Upgrade files with franchise, End/Finale markers, or episode markers to series
             lower_fn = fn.lower()
             lower_title = str(parsed.get("title") or "").lower()
-            movie_end_exceptions = ("avengers", "pirates", "dead end", "deep end", "world's end", "weekend")
+            movie_end_exceptions = ("avengers", "pirates", "dead end", "deep end", "world's end", "weekend", "this is the end", "at world's end")
             has_end_marker = (lower_fn.startswith("end ") or " end" in lower_fn or lower_title.startswith("end ") or " end" in lower_title) and not any(ex in lower_fn for ex in movie_end_exceptions)
 
             if has_end_marker:

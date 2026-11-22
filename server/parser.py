@@ -272,19 +272,23 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
     # 2b. Episodic detection for bare numeric filenames, End/Finale markers, and franchise series
     if not is_series:
         lower_name = name.lower()
+        has_movie_release_sig = bool(
+            YEAR_PATTERN.search(name)
+            and re.search(r"\b(bluray|blu-ray|bdrip|brrip|webrip|web-dl|webdl|hdrip|dvdrip|remastered|imax)\b", name, re.IGNORECASE)
+        )
         # Check for Finale / End markers: e.g. "End Hotel Del Luna", "End Mr Queen", "Hotel Del Luna End"
         end_lead_match = re.search(r"^(?:the\s+)?(?:end|finale|final\s+episode)[\s\.\-_]+(.+)$", name, re.IGNORECASE)
         end_trail_match = re.search(r"^(.+?)[\s\.\-_]+(?:the\s+)?(?:end|finale|final\s+episode)(?:[\s\.\-_]+.*)?$", name, re.IGNORECASE)
-        movie_end_exceptions = ("avengers end", "pirates end", "world's end", "worlds end", "dead end", "deep end", "week end", "weekend")
+        movie_end_exceptions = ("avengers end", "pirates end", "world's end", "worlds end", "dead end", "deep end", "week end", "weekend", "this is the end", "at world's end")
 
-        if end_lead_match:
+        if end_lead_match and not has_movie_release_sig:
             is_series = True
             season = 1
             num_m = re.search(r"\b(?:ep|episode|e)?\s*0?(\d{1,3})\b", name, re.IGNORECASE)
             episode = int(num_m.group(1)) if num_m else 999
             working_name = end_lead_match.group(1).replace(".", " ").replace("_", " ").strip()
             working_name = re.sub(r"[\s\.\-_]+0?(\d{1,3})$", "", working_name).strip()
-        elif end_trail_match and not any(ex in lower_name for ex in movie_end_exceptions):
+        elif end_trail_match and not has_movie_release_sig and not any(ex in lower_name for ex in movie_end_exceptions):
             is_series = True
             season = 1
             num_m = re.search(r"\b(?:ep|episode|e)?\s*0?(\d{1,3})\b", name, re.IGNORECASE)
@@ -325,7 +329,14 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
                     is_known_movie = any(k in lower_pot for k in ("return of beyonce", "iron man", "spider-man", "deadpool", "avatar", "moana", "frozen", "top gun", "gladiator", "shrek", "toy story", "taken", "john wick", "quiet place", "despicable me", "inside out", "dune", "bad boys", "godzilla", "transformers", "jurassic", "mission impossible", "fast", "furious"))
 
                     # Bare single digits (1..9) without 'ep' or leading zero are MOVIE SEQUELS (e.g. Return of Beyonce 1, Iron Man 2)
-                    if has_ep_keyword or is_known_series or has_leading_zero or (len(raw_num_str) >= 2 and 10 <= pot_num <= 300 and not (1920 <= pot_num <= 2030) and not is_known_movie):
+                    # Codec numbers (264/265) and movies with year+rip tags (BluRay/WEBRip/WEB-DL) without explicit 'ep' are NEVER episodes
+                    is_codec_num = pot_num in (264, 265)
+                    if has_ep_keyword or is_known_series or (
+                        not has_movie_release_sig
+                        and not is_codec_num
+                        and not is_known_movie
+                        and (has_leading_zero or (len(raw_num_str) >= 2 and 10 <= pot_num <= 300 and not (1920 <= pot_num <= 2030)))
+                    ):
                         is_series = True
                         season = 1
                         episode = pot_num
@@ -596,9 +607,7 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             episode = None
             year = 2023
         elif (
-            norm_t.startswith("wings")
-            or norm_t.startswith("the wings")
-            or ("wing" in norm_t and ("innovat" in norm_t or "initiat" in norm_t))
+            ("wing" in norm_t and ("innovat" in norm_t or "initiat" in norm_t))
             or norm_t in ("wings", "the wings", "the wings initiative", "wings initiative", "wings innovative")
         ):
             clean_title = "The Wings Initiative"
