@@ -323,7 +323,7 @@ async def flush_batch(client: Client, user_id: int):
             # IT IS 100% A MULTI-QUALITY MOVIE BATCH (e.g. Elf 2003 in 720p and 1080p)!
             if same_title and (has_qual_diff or has_year):
                 all_movies = True
-            elif len(distinct_ep_nums) >= 2 and len(distinct_ep_nums) == len(items):
+            elif same_title and len(distinct_ep_nums) >= 2 and len(distinct_ep_nums) == len(items):
                 # Genuine TV series with distinct episode sequence (preserve each item's exact episode number)
                 logger.info(f"Auto-Promoting multi-file batch ({len(items)} files) to Series Batch (Distinct episodic numbers detected: {sorted(distinct_ep_nums)})")
                 for it, ep_num in zip(items, item_ep_nums):
@@ -332,12 +332,17 @@ async def flush_batch(client: Client, user_id: int):
                     it["parsed"]["episode"] = ep_num
                 all_movies = False
 
-        if all_movies:
-            await process_movies_batch(client, user_id, items, status_msg)
-            return
+        # Split mixed batches cleanly so movies never get sent through series formatting
+        movie_items = [it for it in items if not it["parsed"].get("is_series")]
+        series_items = [it for it in items if it["parsed"].get("is_series")]
 
-        # Case 3: Multiple files forwarded (Series Batch)
-        await process_series_batch(client, user_id, items, status_msg)
+        if movie_items and series_items:
+            await process_movies_batch(client, user_id, movie_items, status_msg)
+            await process_series_batch(client, user_id, series_items, None)
+        elif movie_items:
+            await process_movies_batch(client, user_id, movie_items, status_msg)
+        else:
+            await process_series_batch(client, user_id, series_items, status_msg)
 
 
 async def process_movies_batch(client: Client, user_id: int, items: list, status_msg: Message):
@@ -528,7 +533,7 @@ async def process_movies_batch(client: Client, user_id: int, items: list, status
             for v in entry["versions"]:
                 code_lines.append(f"{entry['title']}{year_str} [{v['quality']}]: {v['stream_url']}")
 
-        text = f"{header}```{chr(10).join(code_lines)}```"
+        text = f"{header}```\n{chr(10).join(code_lines)}\n```"
         await safe_update_status(client, user_id, status_msg, text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
@@ -843,7 +848,7 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
                 lines.append(f"{ep_tag}{title_part}: {ep['stream_url']}")
 
             code_block = "\n".join(lines)
-            body_text = f"{header}```{code_block}```"
+            body_text = f"{header}```\n{code_block}\n```"
 
             reply_markup = InlineKeyboardMarkup(buttons) if c_idx == 0 else None
             target_msg = group_status_msg if c_idx == 0 else None
