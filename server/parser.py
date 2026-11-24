@@ -160,8 +160,20 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
     name = re.sub(r"^(?:cc|ct|hw|mf|mm|ft|tg|tc|hd)[\s\._-]+", "", name, flags=re.IGNORECASE)
     name = re.sub(r"^ft(?=[a-z])", "", name, flags=re.IGNORECASE)
 
-    # Strip ripper / release group tags like Filmhousemain
-    name = re.sub(r"[\s\._-]+filmhousemain\b", "", name, flags=re.IGNORECASE)
+    # Strip ripper / release group tags like Filmhousemain, Pharaohsofmovies, World.Movies, Uel.Movies, Darkweb
+    name = re.sub(r"[\s\._-]+(?:filmhousemain|pharaohsofmovies|world[\s\._-]+movies|uel[\s\._-]+movies|darkweb)\b", "", name, flags=re.IGNORECASE)
+
+    # Strip leading collection index before Harry Potter (e.g. "1.Harry.Potter...", "6.Harry.Potter...")
+    name = re.sub(r"^\d{1,2}[\s\._-]+(?=harry[\s\._-]+potter)", "", name, flags=re.IGNORECASE)
+    name = re.sub(r"\bprisioner\b", "Prisoner", name, flags=re.IGNORECASE)
+
+    # Strip leading "All." prefix before WandaVision
+    name = re.sub(r"^all[\s\._-]+(?=wandavision)", "", name, flags=re.IGNORECASE)
+
+    # Obfuscated & alias titles
+    name = re.sub(r"\bth[\s\._-]*grt[\s\._-]*h0wm\b", "The.Greatest.Showman", name, flags=re.IGNORECASE)
+    name = re.sub(r"\bcowboy[\s\._-]*up[\s\._-]*tom[\s\._&-]*jerry\b", "Tom.and.Jerry.Cowboy.Up", name, flags=re.IGNORECASE)
+    name = re.sub(r"\bspider[\s\._-]*man[\s\._-]*3[\s\._-]*venom\b", "Spider-Man.3", name, flags=re.IGNORECASE)
 
     # Strip channel watermark signatures like "- Telegram .F." or "Telegram F"
     name = re.sub(r"[\s\._-]+telegram[\s\._-]*[a-z]?[\s\._-]+(?=[sS]\d|\d{1,3}|[eE]\d|1080|720|480|2160|\b)", ".", name, flags=re.IGNORECASE)
@@ -457,6 +469,28 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             clean_title = "Nightborn"
             if not year:
                 year = 2026
+        elif lower_t in ("dont look up", "don't look up"):
+            clean_title = "Don't Look Up"
+            if not year:
+                year = 2021
+        elif lower_t == "the bfg":
+            clean_title = "The BFG"
+            if not year:
+                year = 2016
+        elif lower_t in ("sex love and goop", "sex, love & goop", "sex love goop"):
+            clean_title = "Sex, Love & goop"
+            is_series = True
+        elif lower_t in ("wandavision", "all wandavision"):
+            clean_title = "WandaVision"
+            is_series = True
+        elif lower_t in ("tom and jerry cowboy up", "cowboy up tomjerry", "cowboy up tom&jerry"):
+            clean_title = "Tom and Jerry: Cowboy Up!"
+            if not year:
+                year = 2022
+        elif lower_t in ("spider-man 3", "spiderman 3", "spiderman 3 venom"):
+            clean_title = "Spider-Man 3"
+            if not year:
+                year = 2007
         elif lower_t in ("mission impossible", "mission: impossible"):
             clean_title = "Mission: Impossible"
             if not year:

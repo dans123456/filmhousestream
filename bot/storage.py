@@ -358,6 +358,10 @@ def is_nameless_record(r: dict) -> bool:
     if re.match(r"^\.?\s*(?:[eE]p(?:isode)?|EP)[\s\._\-]*\d{1,3}(?:[\s\._\-]*[sS]\d{1,2}[\s\._\-]*[eE]\d{1,3})?$", base_fn, re.IGNORECASE):
         return True
 
+    # 2b. Generic Telegram/host filenames with no title (e.g. "video_14039", "Video.13581", "Mixdrop.Ts...")
+    if re.match(r"^(?:video[\s\._\-]*\d+|mixdrop[\s\._\-]*ts.*)$", base_fn, re.IGNORECASE):
+        return True
+
     # 3. Check if parsed title is purely generic ("Episode X", "S01EX", "Unnamed Series") and filename has no actual title words
     for t in (title, parsed_title):
         if t and re.match(r"^[\s\._\-]*(?:episode\s*\d+|s\d{1,2}e\d{1,3}|unnamed\s*series)[\s\._\-]*$", t, re.IGNORECASE):
