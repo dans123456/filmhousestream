@@ -165,13 +165,13 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
 
     # Strip leading collection index before Harry Potter (e.g. "1.Harry.Potter...", "6.Harry.Potter...")
     name = re.sub(r"^\d{1,2}[\s\._-]+(?=harry[\s\._-]+potter)", "", name, flags=re.IGNORECASE)
-    name = re.sub(r"\bprisioner\b", "Prisoner", name, flags=re.IGNORECASE)
+    name = re.sub(r"prisioner", "Prisoner", name, flags=re.IGNORECASE)
 
     # Strip leading "All." prefix before WandaVision
     name = re.sub(r"^all[\s\._-]+(?=wandavision)", "", name, flags=re.IGNORECASE)
 
     # Obfuscated & alias titles
-    name = re.sub(r"\bth[\s\._-]*grt[\s\._-]*h0wm\b", "The.Greatest.Showman", name, flags=re.IGNORECASE)
+    name = re.sub(r"th[£e\$]*[\s\._-]*gr[£e\$]*t[\s\._-]*[\$s]*h0wm[an]*", "The.Greatest.Showman", name, flags=re.IGNORECASE)
     name = re.sub(r"\bcowboy[\s\._-]*up[\s\._-]*tom[\s\._&-]*jerry\b", "Tom.and.Jerry.Cowboy.Up", name, flags=re.IGNORECASE)
     name = re.sub(r"\bspider[\s\._-]*man[\s\._-]*3[\s\._-]*venom\b", "Spider-Man.3", name, flags=re.IGNORECASE)
 
