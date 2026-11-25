@@ -340,15 +340,16 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
                     is_series = True
                     season = 1
                     episode = int(lead_raw_num)
-                    # Extract trailing season number if present (e.g. "13 Sweet Home 2" -> Sweet Home, Season 2)
-                    trail_s = re.match(r"^(.+?)\s+([2-9])$", lead_pot_title)
+                    # Extract trailing season number if present (e.g. "13 Sweet Home 2.FilmHouse" -> Sweet Home, Season 2)
+                    cleaned_lead_pot = re.sub(r"\b(?:filmhouse|filmhous|filmho|filmh|fil|fi)\b", "", lead_pot_title, flags=re.IGNORECASE).strip(" .-_")
+                    trail_s = re.match(r"^(.+?)\s+([2-9])$", cleaned_lead_pot)
                     if trail_s:
                         working_name = trail_s.group(1).strip()
                         season = int(trail_s.group(2))
                         if working_name.lower() == "sweet home" and season == 2 and episode > 10:
                             episode -= 10
                     else:
-                        working_name = lead_pot_title
+                        working_name = cleaned_lead_pot or lead_pot_title
                     lead_handled = True
 
             if not lead_handled:
