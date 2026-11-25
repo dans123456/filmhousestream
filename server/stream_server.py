@@ -982,7 +982,7 @@ def build_api_media_payload() -> dict:
             title_clean = str(parsed.get("title") or fn or "Unknown")
             if parsed.get("is_series"):
                 title_clean = re.sub(r"^(?:[sS]\d{1,2}|[sS]eason\s*\d{1,2})\s+", "", title_clean).strip()
-                title_clean = re.sub(r"^(?:the\s+)?(?:end|finale|final)\s+", "", title_clean, flags=re.IGNORECASE).strip()
+                title_clean = re.sub(r"^(?:the\s+)?(?:end|finale|final)\s+(?!of\b)", "", title_clean, flags=re.IGNORECASE).strip()
                 title_clean = re.sub(r"[\s\.\-_]+(?:the\s+)?(?:end|finale|final)$", "", title_clean, flags=re.IGNORECASE).strip()
                 title_clean = re.sub(r"\b(?:2160p|1440p|1080p|720p|576p|540p|480p|360p|240p|264|265|x264|x265|h264|h265)\b", "", title_clean, flags=re.IGNORECASE).strip()
                 title_clean = re.sub(r"[\s\-_]+(?:telegram(?:\s+[a-z])?|fi|fil|film|filmh|filmho|filmhou|filmhous|d)$", "", title_clean, flags=re.IGNORECASE).strip()
