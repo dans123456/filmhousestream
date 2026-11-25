@@ -994,6 +994,11 @@ def build_api_media_payload() -> dict:
                     parsed["category"] = "kdrama"
                     if not parsed.get("tmdb_id"):
                         parsed["tmdb_id"] = 220074
+                elif norm_lower == "arcane" or norm_lower.startswith("arcane league of legends"):
+                    title_clean = "Arcane"
+                    parsed["title"] = "Arcane"
+                    if not parsed.get("tmdb_id"):
+                        parsed["tmdb_id"] = 94605
                 elif norm_lower.startswith("avatar aang") or "last airbender" in norm_lower:
                     title_clean = "Avatar: The Last Airbender"
                     parsed["title"] = "Avatar: The Last Airbender"

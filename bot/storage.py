@@ -130,6 +130,8 @@ def get_canonical_item_key(parsed: dict, file_name: str) -> str:
         norm = "tyler_perrys_ruthless"
     elif "sista" in norm:
         norm = "tyler_perrys_sistas"
+    elif norm == "arcane" or norm.startswith("arcane_league_of_legends"):
+        norm = "arcane"
     elif norm.startswith("flex_x_cop") or norm.startswith("flexxcop") or norm.startswith("flex_cop") or norm == "flex_cop":
         norm = "flex_x_cop"
 

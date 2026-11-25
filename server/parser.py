@@ -7,7 +7,7 @@ CLEANUP_TAGS = [
     r"\b(2160p|4k|1440p|1080p|1080i|720p|576p|540p|480p|360p|240p|bd1080p|bd720p|bd480p)\b",
     r"\b(uhd|fhd|hd|sd|hq)\b",
     r"\b(hd-in|hd_in|hdin|hd-tc|hdtc|hd-cam|hdcam|hd-ts|hdts|hdtv|hdrip)\b",
-    r"\b(bluray|blu-ray|web-dl|webdl|web-rip|webrip|web-d|dvdrip|brrip|bdrip|camrip|web|dvd)\b",
+    r"\b(blu[\s\-_]?ray|web[\s\-_]?dl|web[\s\-_]?rip|web-d|dvd[\s\-_]?rip|brrip|bdrip|camrip|web|dvd|dl)\b",
     r"\b(x264|x265|h264|h265|264|265|hevc|avc|10bit|8bit|hdr|hdr10|hdr10\+|dovi|dv)\b",
     r"\b(aac|ac3|dts|dtshd|eac3|mp3|flac|ddp5\.1|dd5\.1|ddp|dd|truehd|atmos)\b",
     r"\b(2ch|2\.0ch|2\.1ch|5\.1ch|6ch|8ch|stereo|mono|ch)\b",
@@ -582,6 +582,9 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
 
         if norm_t.startswith("flex cop") or norm_t.startswith("flex x cop") or norm_t.startswith("flexxcop"):
             clean_title = "Flex X Cop"
+            is_series = True
+        elif norm_t == "arcane" or norm_t.startswith("arcane league of legends"):
+            clean_title = "Arcane"
             is_series = True
         elif norm_t.startswith("georgie and mandy"):
             clean_title = "Georgie & Mandy's First Marriage"
