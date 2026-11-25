@@ -175,6 +175,13 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
     name = re.sub(r"\bcowboy[\s\._-]*up[\s\._-]*tom[\s\._&-]*jerry\b", "Tom.and.Jerry.Cowboy.Up", name, flags=re.IGNORECASE)
     name = re.sub(r"\bspider[\s\._-]*man[\s\._-]*3[\s\._-]*venom\b", "Spider-Man.3", name, flags=re.IGNORECASE)
 
+    # Classic Mr. Bean numbered episodes: "Mr.Bean.2.-.The.Return.Of.Mr.Bean" -> "Mr.Bean.S01E02.The.Return.Of.Mr.Bean"
+    mr_bean_ep = re.match(r"^mr[\s\._]*bean[\s\._]+(\d{1,2})[\s\._]*-[\s\._]*(.+)$", name, re.IGNORECASE)
+    if mr_bean_ep and "animated" not in name.lower():
+        ep_n = int(mr_bean_ep.group(1))
+        sub_t = mr_bean_ep.group(2)
+        name = f"Mr.Bean.S01E{ep_n:02d}.{sub_t}"
+
     # Strip channel watermark signatures like "- Telegram .F." or "Telegram F"
     name = re.sub(r"[\s\._-]+telegram[\s\._-]*[a-z]?[\s\._-]+(?=[sS]\d|\d{1,3}|[eE]\d|1080|720|480|2160|\b)", ".", name, flags=re.IGNORECASE)
     name = re.sub(r"[\s\._-]+telegram[\s\._-]*[a-z]?$", "", name, flags=re.IGNORECASE)
@@ -317,14 +324,31 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
                 lead_low_title = lead_pot_title.lower()
                 lead_has_zero = lead_raw_num.startswith("0") and len(lead_raw_num) >= 2
                 lead_has_prefix = bool(re.match(r"^(?:ep|episode|e)[\s\.\-_]*\d", name, re.IGNORECASE))
-                lead_is_known_series = any(k in lead_low_title for k in ("killer paradox", "my demon", "chucky", "demon", "squid game", "queen of tears", "flex", "bean", "koleoso", "yoruba", "fixie", "veggie", "noobee"))
+                lead_is_known_series = (
+                    any(k in lead_low_title for k in (
+                        "killer paradox", "my demon", "chucky", "demon", "squid game", "queen of tears",
+                        "flex", "bean", "koleoso", "yoruba", "fixie", "veggie", "noobee", "sweet home",
+                        "the glory", "vincenzo", "all of us are dead", "true beauty", "lovely runner",
+                        "marry my husband", "business proposal", "goblin", "hotel del luna", "mr queen",
+                        "hidden love", "good day to be a dog"
+                    ))
+                    and "home sweet home" not in lead_low_title
+                )
                 lead_is_known_movie = any(k in lead_low_title for k in ("cloverfield lane", "years a slave", "jump street", "first dates", "meters down", "hours", "monkeys", "rounds", "underground", "mile", "guns"))
 
                 if (lead_has_zero or lead_has_prefix or lead_is_known_series) and not lead_is_known_movie:
                     is_series = True
                     season = 1
                     episode = int(lead_raw_num)
-                    working_name = lead_pot_title
+                    # Extract trailing season number if present (e.g. "13 Sweet Home 2" -> Sweet Home, Season 2)
+                    trail_s = re.match(r"^(.+?)\s+([2-9])$", lead_pot_title)
+                    if trail_s:
+                        working_name = trail_s.group(1).strip()
+                        season = int(trail_s.group(2))
+                        if working_name.lower() == "sweet home" and season == 2 and episode > 10:
+                            episode -= 10
+                    else:
+                        working_name = lead_pot_title
                     lead_handled = True
 
             if not lead_handled:

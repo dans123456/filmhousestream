@@ -1942,6 +1942,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       if (norm.startsWith('hidden_love')) return 'hidden_love';
       if (norm === 'arcane' || norm.startsWith('arcane_league_of_legends')) return 'arcane';
       if (norm.startsWith('flex_x_cop') || norm.startsWith('flexxcop') || norm.startsWith('flex_cop') || norm.includes('flex_x_cop') || norm.includes('flex_cop')) return 'flex_x_cop';
+      if (norm.includes('mr_bean') && norm.includes('animated')) return 'mr_bean_the_animated_series';
       if (norm.startsWith('mr_bean') || norm.startsWith('mrbean') || (norm.includes('bean') && !norm.includes('lord_of_the_beans'))) return 'mr_bean';
       if (norm.startsWith('georgie_and_mandy')) return 'georgie_and_mandys_first_marriage';
       if (norm.includes('ruthless')) return 'tyler_perrys_ruthless';
