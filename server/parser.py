@@ -68,16 +68,16 @@ VEGGIETALES_PHRASES = (
 
 # Patterns for Season and Episode detection
 SERIES_PATTERNS = [
-    # Multi-episode: S01E01-E02, S01E01-02, S01E01E02, S01E01 - E02, S01E01&02, S01E01+02
-    re.compile(r"[sS](?P<season>\d{1,2})[\s\.\-_]*[eE](?P<episode>\d{1,3})[\s\.\-_]*(?:-|to|e|E|&|\+)[\s\.\-_]*(?:[eE])?(?P<end_episode>\d{1,3})"),
+    # Multi-episode: S01E01-E02, S01E01-02, S01E01E02, S01E01 - E02, S01E01&02, S01E01+02, S3EP3&4
+    re.compile(r"[sS](?P<season>\d{1,2})[\s\.\-_]*(?:[eE]p(?:isode)?|[eE])(?P<episode>\d{1,3})[\s\.\-_]*(?:-|to|e|ep|E|EP|&|\+)[\s\.\-_]*(?:[eE]p(?:isode)?|[eE])?(?P<end_episode>\d{1,3})", re.IGNORECASE),
     # Multi-episode Season X Episode Y-Z, Season X Ep Y-Z, Season X Episode Y & Z
     re.compile(r"[sS]eason[\s\.\-_]*(?P<season>\d{1,2})[\s\.\-_]*[eE]p(?:isode)?[\s\.\-_]*(?P<episode>\d{1,3})[\s\.\-_]*(?:-|to|&|\+)[\s\.\-_]*(?:[eE]p(?:isode)?)?[\s\.\-_]*(?P<end_episode>\d{1,3})", re.IGNORECASE),
     # 1x01-02, 01x01-02
     re.compile(r"(?P<season>\d{1,2})[xX](?P<episode>\d{1,3})[\s\.\-_]*(?:-|to|&|\+)[\s\.\-_]*(?P<end_episode>\d{1,3})"),
     # Multi-episode standalone: Episode 12-13, Ep 12-13, Ep 12 & 13, Ep 12-E13, Episode 12 to 13 (must NOT be preceded by a hyphen like danny-phantom-episode-52-53)
     re.compile(r"(?<![\-_])\b(?:[eE]p(?:isode)?|EP)[\s\.\-_]*(?P<episode>\d{1,3})[\s\.\-_]*(?:-|to|&|\+)[\s\.\-_]*(?:[eE]p(?:isode)?)?[\s\.\-_]*(?P<end_episode>\d{1,3})\b", re.IGNORECASE),
-    # S01E02, S1E2, s01e02, S01.E02, S01 - E02, S01_E02, S01 Episode 02
-    re.compile(r"[sS](?P<season>\d{1,2})[\s\.\-_]*(?:[eE]p(?:isode)?|[eE])[\s\.\-_]*(?P<episode>\d{1,3})", re.IGNORECASE),
+    # S01E02, S1E2, s01e02, S01.E02, S01 - E02, S01_E02, S01 Episode 02, S1_Ep1, WandaVisionS1Ep5 (glued S1Ep5)
+    re.compile(r"(?:^|(?<=[\s\.\-_\[\]\(\)#])|(?<=[a-zA-Z]))[sS](?P<season>\d{1,2})[\s\.\-_]*(?:[eE]p(?:isode)?|[eE])[\s\.\-_]*(?P<episode>\d{1,3})(?=[\s\.\-_\[\]\(\)]|$|\b)", re.IGNORECASE),
     # S1 - 01, S01 - 02, S1 01, S1 - 1, S01.01 (e.g. Archive 81 S1 - 01)
     re.compile(r"\b[sS](?P<season>\d{1,2})[\s\.\-_]+(?P<episode>\d{1,3})\b"),
     # 1x02, 01x02
@@ -158,10 +158,25 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
     # Nightborn A.K.A. Yon Lapsi -> Nightborn
     name = re.sub(r"\bnightborn[\s\._-]+a[\s\._]*k[\s\._]*a[\s\._-]+(?:yon[\s\._-]+lapsi|yön[\s\._-]+lapsi)?\b", "Nightborn", name, flags=re.IGNORECASE)
 
-    # Strip leading bracketed release tags like "[MF] ", "[TGx] " and channel prefixes like "WML.", "@FBM_HW ", "@MV_PD."
-    name = re.sub(r"^\s*(?:@[\w\d_\-\.]+[\s\._-]*)+", "", name)
-    name = re.sub(r"^\s*\[[^\]]{1,12}\][\s\._-]*", "", name)
-    name = re.sub(r"^(?:cc|ct|hw|mf|mm|ft|tg|tc|hd|wml|lcm|cs|ms|pd|all)[\s\._-]+(?!quiet\b|hail\b|of\s+us\b|the\b|american\b|about\b|dogs\b|eyez\b|good\b|my\b|saints\b|souls\b|star\b)", "", name, flags=re.IGNORECASE)
+    # Strip leading bracketed release tags like "[MF] ", "[TGx] ", "[Mzone]", "™️" and channel prefixes like "@Hezz_Series.", "@Movies_Lux_on_my_block", "WML.", "@FBM_HW ", "@MV_PD."
+    name = re.sub(r"[™®©]", "", name)
+    name = re.sub(r"^[Ⓜm]ovie[:\s\._\-]+", "", name, flags=re.IGNORECASE)
+    if "2025" in name and "blood" in name.lower() and "white" in name.lower():
+        name = "2025.Blood.White.and.Blue.2022"
+    # Restore "@TheEndOfTheFuckingWorldOfficial[S01E01]" where channel name WAS the show title!
+    if re.search(r"@theendofthefuckingworld", raw_filename, re.IGNORECASE):
+        name = "The.End.of.the.Fucking.World." + name.lstrip(" .-_")
+    else:
+        # Only strip leading @Handle up to the first space, dot, or double underscore (or known channel prefix before underscore)
+        name = re.sub(r"^\s*@(?:movies_lux|seriesresort|hezz_series|[a-zA-Z0-9\-\.]*?_(?:series|movies|tv|drama|flix|official|hub|zone|land|salon)|[a-zA-Z0-9]+)(?=[\s\._\-\[]|[A-Z][a-z])[\s\._\-]*", "", name, flags=re.IGNORECASE)
+        name = re.sub(r"^\s*(?:@[\w\d\-\.]+[\s\._\-]+)+", "", name)
+
+    name = re.sub(r"^\s*(?:\[[^\]]{1,24}\][\s\._\-]*)+", "", name)
+    name = re.sub(r"^\s*(?:\(\s*@?[^\)]{1,24}\s*\)[\s\._\-]*)+", "", name)
+    # Strip leading "Series." or "Movie." prefix (e.g. "Series.One.of.Us.Is.Lying")
+    name = re.sub(r"^(?:tv[\s\._\-]+)?series[\s\._\-]+(?!of\s+unfortunate\b)", "", name, flags=re.IGNORECASE)
+    name = re.sub(r"^(?:cc|ct|hw|mf|mm|ft|tg|tc|hd|wml|lcm|cs|ms|pd|lux)[\s\._\-]+(?!quiet\b|hail\b|of\s+us\b|the\b|american\b|about\b|dogs\b|eyez\b|good\b|my\b|saints\b|souls\b|star\b)", "", name, flags=re.IGNORECASE)
+    name = re.sub(r"^all[\s\._\-]+(?=wandavision\b)", "", name, flags=re.IGNORECASE)
     name = re.sub(r"^ft(?=[a-z])", "", name, flags=re.IGNORECASE)
 
     # Strip ripper / release group tags like Filmhousemain, Pharaohsofmovies, World.Movies, Uel.Movies, Darkweb, YouthTrendx, MkvCage, YIFY
@@ -266,10 +281,12 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             if end_episode:
                 after_text = re.sub(rf"^(?:[\s\.\-_]*(?:e|ep|episode)?[\s\.\-_]*0?{end_episode}\b)", "", after_text, flags=re.IGNORECASE).strip(" -_")
 
-            # Extract title before the season/episode marker
+            # Extract title before the season/episode marker (also strip trailing '[' or '#' from e.g. Trinkets.[S02E01] or WandaVision #S01E05)
             before_text = name[:m.start()].replace(".", " ").replace("_", " ").replace("-", " ")
+            before_text = re.sub(r"[\[\(\{#]+$", "", before_text).strip()
             for tag_pattern in CLEANUP_TAGS + [r"\bfilmhouse\b"]:
                 before_text = re.sub(tag_pattern, "", before_text, flags=re.IGNORECASE)
+            before_text = re.sub(r"[\[\(\{#]+$", "", before_text)
             before_text = re.sub(r"\s+", " ", before_text).strip(" -_")
 
             # CRITICAL FIX for "Episode 1 - Show Name" or "KDG_E01_Show_Name" filenames:
@@ -375,9 +392,12 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
 
                     # Bare single digits (1..9) without 'ep' or leading zero are MOVIE SEQUELS (e.g. Return of Beyonce 1, Iron Man 2)
                     # Codec numbers (264/265) and movies with year+rip tags (BluRay/WEBRip/WEB-DL) without explicit 'ep' are NEVER episodes
+                    # Numbers that are part of movie titles (e.g. "40 Dates And 40 Nights", "Room 203", "Sappho 68", "Trap 48", "The Invention of Lying 2009 720p BluRay 999MB") are NEVER episodes
                     is_codec_num = pot_num in (264, 265)
+                    is_movie_with_year = bool(YEAR_PATTERN.search(name)) and not has_ep_keyword and not is_known_series
                     if has_ep_keyword or is_known_series or (
                         not has_movie_release_sig
+                        and not is_movie_with_year
                         and not is_codec_num
                         and not is_known_movie
                         and (has_leading_zero or (len(raw_num_str) >= 2 and 10 <= pot_num <= 300 and not (1920 <= pot_num <= 2030)))
@@ -539,10 +559,19 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
         elif lower_t in ("ang mutya ng section e", "the jewel of section e"):
             clean_title = "The Jewel of Section E"
             is_series = True
-        elif lower_t == "hotel transylvania 4":
+        elif lower_t in ("hotel transylvania 4", "hotel transylvania transformania", "hotel transylvania: transformania"):
             clean_title = "Hotel Transylvania: Transformania"
             if not year:
                 year = 2022
+        elif lower_t in ("ant man", "ant-man"):
+            clean_title = "Ant-Man"
+        elif lower_t in ("spider man brand new day", "spider-man brand new day", "spider-man: brand new day"):
+            clean_title = "Spider-Man: Brand New Day"
+        elif lower_t in ("the craft legacy", "the craft: legacy"):
+            clean_title = "The Craft: Legacy"
+        elif lower_t.startswith("2025 blood white"):
+            clean_title = "2025: Blood, White & Blue"
+            year = 2022
         elif lower_t == "scott vs world":
             clean_title = "Scott Pilgrim vs. the World"
             if not year:
@@ -660,11 +689,13 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             if not episode:
                 episode = 1
 
-        # Strip any residual resolution, codec, season prefix, or truncated watermark tags stuck in clean_title
+        # Strip any residual resolution, codec, season prefix/suffix, or truncated watermark tags stuck in clean_title
         clean_title = re.sub(r"^(?:[sS]\d{1,2}|[sS]eason\s*\d{1,2})\s+", "", clean_title).strip()
+        clean_title = re.sub(r"^(?:tv\s+)?series\s+(?!of\s+unfortunate\b)", "", clean_title, flags=re.IGNORECASE).strip()
+        clean_title = re.sub(r"\s+(?:[sS]\d{1,2}|[sS]eason\s*\d{1,2})$", "", clean_title).strip()
         clean_title = re.sub(r"\b(?:2160p|1440p|1080p|720p|576p|540p|480p|360p|240p|264|265|x264|x265|h264|h265)\b", "", clean_title, flags=re.IGNORECASE).strip()
         clean_title = re.sub(r"[\s\-_]+(?:telegram(?:\s+[a-z])?|fi|fil|film|filmh|filmho|filmhou|filmhous|d)$", "", clean_title, flags=re.IGNORECASE).strip()
-        clean_title = re.sub(r"\s+", " ", clean_title).strip(" -_.")
+        clean_title = re.sub(r"\s+", " ", clean_title).strip(" -_.#[]()")
         lower_t = clean_title.lower()
 
         # Canonical Series Normalization (unifies truncated titles and missing apostrophes)
@@ -677,6 +708,63 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             is_series = True
         elif norm_t == "arcane" or norm_t.startswith("arcane league of legends"):
             clean_title = "Arcane"
+            is_series = True
+        elif "one of us is lying" in norm_t or "on of us is lying" in norm_t or norm_t == "of us is lying":
+            clean_title = "One of Us Is Lying"
+            is_series = True
+        elif norm_t.startswith("wandavision"):
+            clean_title = "WandaVision"
+            is_series = True
+        elif "legend of korra" in norm_t:
+            clean_title = "The Legend of Korra"
+            is_series = True
+        elif "casa de papel" in norm_t or "money heist" in norm_t:
+            clean_title = "Money Heist"
+            is_series = True
+        elif "tales of ladybug" in norm_t or "miraculous" in norm_t:
+            clean_title = "Miraculous: Tales of Ladybug & Cat Noir"
+            is_series = True
+        elif "mother of the bride" in norm_t or "mother of brides" in norm_t:
+            if is_series:
+                clean_title = "Mother Of The Brides"
+        elif "love other than yours" in norm_t:
+            clean_title = "A Love Other Than Yours"
+            is_series = True
+        elif "baker and the beauty" in norm_t:
+            clean_title = "The Baker and the Beauty"
+            is_series = True
+        elif "on my block" in norm_t:
+            clean_title = "On My Block"
+            is_series = True
+        elif norm_t in ("marvel", "ms marvel") and ("ms" in raw_filename.lower() or "ms marvel" in norm_t):
+            clean_title = "Ms. Marvel"
+            is_series = True
+        elif norm_t in ("her fault", "all her fault"):
+            clean_title = "All Her Fault"
+            is_series = True
+        elif norm_t in ("of us are dead", "all of us are dead"):
+            clean_title = "All of Us Are Dead"
+            is_series = True
+        elif norm_t in ("that we loved", "all that we loved"):
+            clean_title = "All That We Loved"
+            is_series = True
+        elif "i know what you did last summer" in norm_t and is_series:
+            clean_title = "I Know What You Did Last Summer"
+            is_series = True
+        elif "generator rex" in norm_t:
+            clean_title = "Generator Rex"
+            is_series = True
+        elif "end of the fucking world" in norm_t or "end of the f***ing world" in norm_t:
+            clean_title = "The End of the F***ing World"
+            is_series = True
+        elif "trinkets" in norm_t:
+            clean_title = "Trinkets"
+            is_series = True
+        elif "alrawabi school for girls" in norm_t:
+            clean_title = "AlRawabi School for Girls"
+            is_series = True
+        elif norm_t.startswith("girls hostel"):
+            clean_title = "Girls Hostel"
             is_series = True
         elif norm_t.startswith("georgie and mandy"):
             clean_title = "Georgie & Mandy's First Marriage"

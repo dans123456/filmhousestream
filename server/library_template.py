@@ -1914,8 +1914,9 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       norm = norm.replace(/[^a-z0-9\s]/g, ' ');
       norm = norm.trim().replace(/\s+/g, '_');
 
-      // Strip leading season prefix (e.g. "s01_the_early_spring")
+      // Strip leading season or "series_" prefix (e.g. "s01_the_early_spring", "series_one_of_us_is_lying")
       norm = norm.replace(/^s\d{1,2}_+/, '');
+      norm = norm.replace(/^(tv_)?series_+(?!of_unfortunate)/, '');
 
       // Universal article stripper: "the_", "a_", "an_" so titles with/without articles unite automatically!
       norm = norm.replace(/^(the|a|an)_+/, '');
@@ -1926,7 +1927,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
 
       // Proactively strip trailing part, season, volume, year, resolution, codec, and release descriptors
       for (let i = 0; i < 4; i++) {
-        norm = norm.replace(/_(season|s|part|pt|vol|volume|book|chapter|cdrama|kdrama|series|miniseries|tv|complete|full|hd|sd|hq|fhd|uhd|4k|2160p|1440p|1080p|720p|576p|540p|480p|360p|240p|264|265|x264|x265|h264|h265|fi|fil|film|filmh|filmho|filmhou|filmhous|filmhouse|telegram|d)(_\d+)*$/g, '');
+        norm = norm.replace(/_(season|s|s\d{1,2}|part|pt|vol|volume|book|chapter|cdrama|kdrama|series|miniseries|tv|complete|full|hd|sd|hq|fhd|uhd|4k|2160p|1440p|1080p|720p|576p|540p|480p|360p|240p|264|265|x264|x265|h264|h265|fi|fil|film|filmh|filmho|filmhou|filmhous|filmhouse|telegram|d)(_\d+)*$/g, '');
         norm = norm.replace(/_\d{4}$/g, '');
       }
       norm = norm.replace(/_[0-9]$/, '');
@@ -1934,10 +1935,22 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       // Known Franchise Aliases
       if (norm === 'forever' || norm.startsWith('forever_')) return 'forever';
       if (norm.startsWith('avatar_aang') || norm.startsWith('avatar_the_last_airbender') || norm.startsWith('legend_of_aang') || norm.includes('last_airbender')) return 'avatar_the_last_airbender';
+      if (norm.includes('legend_of_korra')) return 'the_legend_of_korra';
+      if (norm.includes('one_of_us_is_lying') || norm.includes('on_of_us_is_lying') || norm === 'of_us_is_lying') return 'one_of_us_is_lying';
+      if (norm.startsWith('wandavision')) return 'wandavision';
+      if (norm.includes('casa_de_papel') || norm.includes('money_heist')) return 'money_heist';
+      if (norm.includes('tales_of_ladybug') || norm.includes('miraculous')) return 'miraculous_tales_of_ladybug_and_cat_noir';
+      if (norm.includes('baker_and_the_beauty')) return 'the_baker_and_the_beauty';
+      if (norm.includes('on_my_block')) return 'on_my_block';
+      if (norm.includes('love_other_than_yours')) return 'a_love_other_than_yours';
+      if (norm.startsWith('girls_hostel')) return 'girls_hostel';
+      if (norm.includes('generator_rex')) return 'generator_rex';
+      if (norm.includes('trinkets')) return 'trinkets';
+      if (norm.includes('alrawabi_school_for_girls')) return 'alrawabi_school_for_girls';
       if (norm.startsWith('macgyver')) return 'macgyver';
       if (norm.startsWith('love_in_disguise')) return 'love_in_disguise';
       if (norm.startsWith('maxton_hall')) return 'maxton_hall';
-      if (norm === 'mother_of_the_bride' || norm === 'mother_of_the_brides') return 'mother_of_the_brides';
+      if (norm === 'mother_of_the_bride' || norm === 'mother_of_the_brides' || norm === 'mother_of_brides') return 'mother_of_the_brides';
       if (norm.startsWith('a_good_day_to_be_a_dog') || norm.includes('good_day_to_be_a_dog')) return 'a_good_day_to_be_a_dog';
       if (norm.startsWith('hidden_love')) return 'hidden_love';
       if (norm === 'arcane' || norm.startsWith('arcane_league_of_legends')) return 'arcane';
@@ -2014,11 +2027,21 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
 
       if (col === 'arcane' || col.startsWith('arcaneleagueoflegends')) return 'Arcane';
       if (col.startsWith('maxtonhall')) return 'Maxton Hall';
-      if (col === 'motherofthebride' || col === 'motherofthebrides') return 'Mother Of The Brides';
+      if (col === 'motherofthebride' || col === 'motherofthebrides' || col === 'motherofbrides') return 'Mother Of The Brides';
+      if (col.includes('oneofusislying') || col.includes('onofusislying') || col === 'ofusislying') return 'One of Us Is Lying';
+      if (col.startsWith('wandavision')) return 'WandaVision';
+      if (col.includes('legendofkorra')) return 'The Legend of Korra';
+      if (col.includes('casadepapel') || col.includes('moneyheist')) return 'Money Heist';
+      if (col.includes('talesofladybug') || col.includes('miraculous')) return 'Miraculous: Tales of Ladybug & Cat Noir';
+      if (col.includes('bakerandthebeauty')) return 'The Baker and the Beauty';
+      if (col.includes('onmyblock')) return 'On My Block';
+      if (col.includes('loveotherthanyours')) return 'A Love Other Than Yours';
 
-      let clean = String(rawTitle).trim();
+      let clean = String(rawTitle).replace(/[™®©#\[\]]/g, '').trim();
+      clean = clean.replace(/^(tv\s+)?series\s+(?!of\s+unfortunate)/i, '');
       clean = clean.replace(/^s\d{1,2}\s+/i, '');
-      clean = clean.replace(/^(the\s+)?(end|finale|final)\s+/i, '');
+      clean = clean.replace(/\s+s\d{1,2}$/i, '');
+      clean = clean.replace(/^(the\s+)?(end|finale|final)\s+(?!of\b)/i, '');
       clean = clean.replace(/[\s\.\-_]+(the\s+)?(end|finale|final)$/i, '');
       clean = clean.replace(/\b(2160p|1440p|1080p|720p|576p|540p|480p|360p|240p|264|265|x264|x265|h264|h265)\b/gi, '');
       for (let i = 0; i < 3; i++) {

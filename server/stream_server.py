@@ -981,12 +981,15 @@ def build_api_media_payload() -> dict:
 
             title_clean = str(parsed.get("title") or fn or "Unknown")
             if parsed.get("is_series"):
+                title_clean = re.sub(r"[™®©]", "", title_clean).strip()
                 title_clean = re.sub(r"^(?:[sS]\d{1,2}|[sS]eason\s*\d{1,2})\s+", "", title_clean).strip()
+                title_clean = re.sub(r"^(?:tv\s+)?series\s+(?!of\s+unfortunate\b)", "", title_clean, flags=re.IGNORECASE).strip()
+                title_clean = re.sub(r"\s+(?:[sS]\d{1,2}|[sS]eason\s*\d{1,2})$", "", title_clean).strip()
                 title_clean = re.sub(r"^(?:the\s+)?(?:end|finale|final)\s+(?!of\b)", "", title_clean, flags=re.IGNORECASE).strip()
                 title_clean = re.sub(r"[\s\.\-_]+(?:the\s+)?(?:end|finale|final)$", "", title_clean, flags=re.IGNORECASE).strip()
                 title_clean = re.sub(r"\b(?:2160p|1440p|1080p|720p|576p|540p|480p|360p|240p|264|265|x264|x265|h264|h265)\b", "", title_clean, flags=re.IGNORECASE).strip()
                 title_clean = re.sub(r"[\s\-_]+(?:telegram(?:\s+[a-z])?|fi|fil|film|filmh|filmho|filmhou|filmhous|d)$", "", title_clean, flags=re.IGNORECASE).strip()
-                title_clean = re.sub(r"\s+", " ", title_clean).strip(" -_.")
+                title_clean = re.sub(r"\s+", " ", title_clean).strip(" -_.#[]")
                 norm_lower = title_clean.lower()
                 if norm_lower.startswith("flex cop") or norm_lower.startswith("flex x cop") or norm_lower.startswith("flexxcop"):
                     title_clean = "Flex X Cop"
@@ -999,6 +1002,30 @@ def build_api_media_payload() -> dict:
                     parsed["title"] = "Arcane"
                     if not parsed.get("tmdb_id"):
                         parsed["tmdb_id"] = 94605
+                elif "one of us is lying" in norm_lower or "on of us is lying" in norm_lower or norm_lower == "of us is lying":
+                    title_clean = "One of Us Is Lying"
+                    parsed["title"] = "One of Us Is Lying"
+                elif norm_lower.startswith("wandavision"):
+                    title_clean = "WandaVision"
+                    parsed["title"] = "WandaVision"
+                elif "legend of korra" in norm_lower:
+                    title_clean = "The Legend of Korra"
+                    parsed["title"] = "The Legend of Korra"
+                elif "casa de papel" in norm_lower or "money heist" in norm_lower:
+                    title_clean = "Money Heist"
+                    parsed["title"] = "Money Heist"
+                elif "tales of ladybug" in norm_lower or "miraculous" in norm_lower:
+                    title_clean = "Miraculous: Tales of Ladybug & Cat Noir"
+                    parsed["title"] = "Miraculous: Tales of Ladybug & Cat Noir"
+                elif "love other than yours" in norm_lower:
+                    title_clean = "A Love Other Than Yours"
+                    parsed["title"] = "A Love Other Than Yours"
+                elif "baker and the beauty" in norm_lower:
+                    title_clean = "The Baker and the Beauty"
+                    parsed["title"] = "The Baker and the Beauty"
+                elif "on my block" in norm_lower:
+                    title_clean = "On My Block"
+                    parsed["title"] = "On My Block"
                 elif norm_lower.startswith("avatar aang") or "last airbender" in norm_lower:
                     title_clean = "Avatar: The Last Airbender"
                     parsed["title"] = "Avatar: The Last Airbender"
@@ -1022,7 +1049,7 @@ def build_api_media_payload() -> dict:
                 elif norm_lower.startswith("maxton hall"):
                     title_clean = "Maxton Hall"
                     parsed["title"] = "Maxton Hall"
-                elif norm_lower in ("mother of the bride", "mother of the brides"):
+                elif norm_lower in ("mother of the bride", "mother of the brides", "mother of brides"):
                     title_clean = "Mother Of The Brides"
                     parsed["title"] = "Mother Of The Brides"
                 else:
