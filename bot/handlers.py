@@ -135,6 +135,69 @@ def get_main_menu_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+def is_generic_media_filename(fn: str) -> bool:
+    """Returns True if Telegram media filename is missing or generic junk (e.g. video_1234.mp4, IMG_4821.MP4, Mixdrop.Ts.mp4)."""
+    if not fn:
+        return True
+    stem = re.sub(r"\.[a-zA-Z0-9]{2,4}$", "", fn.strip())
+    if not stem:
+        return True
+    low = stem.lower().strip()
+    if re.match(
+        r"^(?:video|vid|img|mov|mp4|mkv|file|clip|document|media|telegram|whatsapp[\s_\-]*video|mixdrop[\s\.\-_]*ts|dood|streamtape|download|watch|movie|episode|ep)[\s\.\-_0-9a-f]*$",
+        low,
+    ):
+        # Allow pure episode tags like "Ep 01" or "01" ONLY to fall back to caption if caption has the actual series name;
+        # if there is no caption, parse_filename("Ep 01.mp4") will still extract episode=1 with needs_title=True!
+        return True
+    if re.match(r"^[0-9a-f]{12,}$", low) or re.match(r"^\d{6,}$", low):
+        return True
+    return False
+
+
+def extract_title_from_caption(caption: str) -> str:
+    """Extracts a clean filename-equivalent title line from a Telegram media caption, ignoring channel ads/links."""
+    if not caption:
+        return ""
+    skip_re = re.compile(
+        r"(?:https?://|t\.me/|telegram\.me/|join\s+(?:our|us|channel)|subscribe|follow\s+us|downloaded\s+from|uploaded\s+by|click\s+here|🔗|👉|📢)",
+        re.IGNORECASE,
+    )
+    best_lines = []
+    for raw_line in caption.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        # Remove inline URLs and trailing @handles
+        line = re.sub(r"https?://\S+|t\.me/\S+", "", line).strip()
+        if not line or skip_re.search(line):
+            continue
+        # Strip leading bullet / emoji labels like "🎬 Title:" or "📺 Movie:" or "File Name :"
+        line = re.sub(r"^[^\w\d@\[\(]+", "", line).strip()
+        line = re.sub(r"^(?:title|movie(?:\s*name)?|series(?:\s*name)?|show|file(?:\s*name)?|name)\s*[:\-–]+\s*", "", line, flags=re.IGNORECASE).strip()
+        # Skip pure metadata lines like "Quality: 720p" or "Size: 400MB" or "Language: English" unless we want quality/season later
+        if re.match(r"^(?:size|file\s*size|duration|runtime|genre|language|audio|subtitles?|cast|director|rating|imdb)\s*[:\-–]", line, re.IGNORECASE):
+            continue
+        if len(line) >= 2:
+            best_lines.append(line)
+
+    if not best_lines:
+        return ""
+
+    primary = best_lines[0]
+    # Also check remaining caption lines for Season/Episode or Quality or Year if missing from line 1!
+    full_cap = " ".join(best_lines[:4])
+    if not re.search(r"\b(?:s\d{1,2}\s*e\d{1,3}|season\s*\d+|episode\s*\d+|ep\s*\d+)\b", primary, re.IGNORECASE):
+        se_m = re.search(r"\b(s\d{1,2}\s*e\d{1,3}|season\s*\d{1,2}\s*(?:episode|ep)\s*\d{1,3}|(?:episode|ep)\s*\d{1,3})\b", full_cap, re.IGNORECASE)
+        if se_m:
+            primary = f"{primary} {se_m.group(1)}"
+    if not re.search(r"\b(2160p|4k|1080p|720p|480p|360p)\b", primary, re.IGNORECASE):
+        q_m = re.search(r"\b(2160p|4k|1080p|720p|480p|360p)\b", full_cap, re.IGNORECASE)
+        if q_m:
+            primary = f"{primary} {q_m.group(1)}"
+    return primary.strip()
+
+
 async def flush_batch(client: Client, user_id: int):
     """
     Called after debounce delay to sort episodes numerically, forward them in order
@@ -152,8 +215,42 @@ async def flush_batch(client: Client, user_id: int):
     if not items:
         return
 
-    # Check for Option B: Did the user forward nameless episodes?
-    # (e.g. 01.mp4, Episode 02, etc.)
+    # Media Album (media_group_id) Caption Inheritance:
+    # When Telegram sends an album of up to 10 media videos, ONLY Video #1 carries the caption!
+    album_groups: dict[str, list] = {}
+    for it in items:
+        mg_id = getattr(it.get("msg"), "media_group_id", None)
+        if mg_id:
+            album_groups.setdefault(str(mg_id), []).append(it)
+    for mg_id, mg_items in album_groups.items():
+        if len(mg_items) > 1:
+            # Sort strictly by Telegram message.id order inside the album
+            mg_items.sort(key=lambda x: x["msg"].id)
+            titled_leader = next((x for x in mg_items if not x["parsed"].get("needs_title")), None)
+            if titled_leader and any(x["parsed"].get("needs_title") for x in mg_items):
+                base_title = titled_leader["parsed"]["title"]
+                base_season = titled_leader["parsed"].get("season") or 1
+                start_ep = titled_leader["parsed"].get("episode") or 1
+                base_qual = titled_leader["parsed"].get("quality")
+                base_cat = titled_leader["parsed"].get("category") or "series"
+                for idx_in_album, x in enumerate(mg_items):
+                    ep_num = x["parsed"].get("episode") if (not x["parsed"].get("needs_title") and x["parsed"].get("episode")) else (start_ep + idx_in_album)
+                    x["parsed"]["is_series"] = True
+                    x["parsed"]["needs_title"] = False
+                    x["parsed"]["title"] = base_title
+                    x["parsed"]["season"] = base_season
+                    x["parsed"]["episode"] = ep_num
+                    if base_qual and not x["parsed"].get("quality"):
+                        x["parsed"]["quality"] = base_qual
+                    x["parsed"]["category"] = base_cat
+                    x["parsed"]["clean_name"] = f"{base_title} S{base_season:02d}E{ep_num:02d}"
+                    ext_m = re.search(r"(\.[a-zA-Z0-9]{2,4})$", x["file_name"])
+                    ext_s = ext_m.group(1) if ext_m else ".mp4"
+                    q_part = f".{x['parsed']['quality']}" if x["parsed"].get("quality") else ""
+                    x["file_name"] = f"{'.'.join(base_title.split())}.S{base_season:02d}E{ep_num:02d}{q_part}{ext_s}"
+
+    # Check for Option B: Did the user forward nameless media/episodes (single or batch)?
+    # (e.g. uncaptioned Media video, 01.mp4, Episode 02, Mixdrop.Ts.mp4, etc.)
     all_need_title = all(item["parsed"].get("needs_title") for item in items)
     if all_need_title:
         _pending_title_batches[user_id] = {
@@ -164,13 +261,23 @@ async def flush_batch(client: Client, user_id: int):
         if len(items) > 3:
             sample_names += f" and {len(items) - 3} more..."
 
-        prompt_text = (
-            f"❓ **Series Title Needed!**\n\n"
-            f"Received **{len(items)} episodes** ({sample_names}), but they don't have a series name.\n\n"
-            f"💬 **Please reply to this message with the Series & Season name:**\n"
-            f"*(Example: `Teach You A Lesson S1` or `Squid Game Season 2`)*\n\n"
-            f"*(Or tap Cancel below to abort)*"
-        )
+        if len(items) == 1:
+            prompt_text = (
+                f"❓ **Movie / Series Title Needed!**\n\n"
+                f"Received media file ({sample_names}) with **no filename or caption title**.\n\n"
+                f"💬 **Reply with the Movie or Series name to index it cleanly:**\n"
+                f"• *Movie example:* `Inception 2010` or `Spider-Man 3 2007`\n"
+                f"• *Series example:* `Squid Game S2E01` or `The Rookie S06E04`\n\n"
+                f"*(Or tap Cancel below to abort)*"
+            )
+        else:
+            prompt_text = (
+                f"❓ **Series Title Needed!**\n\n"
+                f"Received **{len(items)} media files** ({sample_names}), but they don't have a title.\n\n"
+                f"💬 **Please reply with the Series & Season name:**\n"
+                f"*(Example: `Teach You A Lesson S1` or `Squid Game Season 2`)*\n\n"
+                f"*(Or tap Cancel below to abort)*"
+            )
         cancel_kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("❌ Cancel Batch", callback_data="batch_cancel_now")]
         ])
@@ -1426,7 +1533,41 @@ def register_handlers(app: Client):
         status_msg: Message = pending["status_msg"]
 
         custom_text = message.text.strip()
-        # Parse season from the user's reply if provided (e.g., "Teach You A Lesson S2" or "Squid Game Season 1")
+
+        # Single nameless file: allow either a Movie reply ("Inception 2010") or a Series reply ("Squid Game S2E04")!
+        if len(items) == 1:
+            single_parsed = parse_filename(f"{custom_text}.mp4")
+            it = items[0]
+            ext_m = re.search(r"(\.[a-zA-Z0-9]{2,4})$", it["file_name"])
+            ext_s = ext_m.group(1) if ext_m else ".mp4"
+            if single_parsed.get("is_series"):
+                s_num = single_parsed.get("season") or 1
+                e_num = single_parsed.get("episode") or it["parsed"].get("episode") or 1
+                it["parsed"].update(single_parsed)
+                it["parsed"]["needs_title"] = False
+                it["parsed"]["is_series"] = True
+                it["parsed"]["season"] = s_num
+                it["parsed"]["episode"] = e_num
+                it["parsed"]["clean_name"] = f"{single_parsed['title']} S{s_num:02d}E{e_num:02d}"
+                it["file_name"] = f"{'.'.join(single_parsed['title'].split())}.S{s_num:02d}E{e_num:02d}{ext_s}"
+                await message.reply_text(f"✅ Set Episode: **{single_parsed['title']} — S{s_num:02d}E{e_num:02d}**!\nIndexing now...")
+                await process_series_batch(client, user_id, items, status_msg)
+            else:
+                qual_keep = it["parsed"].get("quality") or single_parsed.get("quality")
+                it["parsed"].update(single_parsed)
+                it["parsed"]["needs_title"] = False
+                it["parsed"]["is_series"] = False
+                if qual_keep:
+                    it["parsed"]["quality"] = qual_keep
+                y_part = f".{single_parsed['year']}" if single_parsed.get("year") else ""
+                q_part = f".{qual_keep}" if qual_keep else ""
+                it["file_name"] = f"{'.'.join(single_parsed['title'].split())}{y_part}{q_part}{ext_s}"
+                yr_label = f" ({single_parsed['year']})" if single_parsed.get("year") else ""
+                await message.reply_text(f"✅ Set Movie: **{single_parsed['title']}{yr_label}**!\nIndexing now...")
+                await process_movies_batch(client, user_id, items, status_msg)
+            return
+
+        # Multi-file batch: Parse season from the user's reply if provided (e.g., "Teach You A Lesson S2" or "Squid Game Season 1")
         custom_parsed = parse_filename(f"{custom_text}.S01E01.mkv")
         series_title = custom_parsed["title"]
         season_num = custom_parsed["season"] or 1
@@ -1436,13 +1577,19 @@ def register_handlers(app: Client):
         if s_match:
             season_num = int(s_match.group(1))
 
-        # Update parsed metadata for all items in the batch
-        for item in items:
+        # Update parsed metadata for all items in the batch (auto-number 1..N if generic media videos had no episode numbers!)
+        has_distinct_eps = len({it["parsed"].get("episode") for it in items if it["parsed"].get("episode")}) == len(items)
+        for idx_i, item in enumerate(items, 1):
             item["parsed"]["title"] = series_title
             item["parsed"]["season"] = season_num
             item["parsed"]["is_series"] = True
-            ep_num = item["parsed"].get("episode") or 1
+            item["parsed"]["needs_title"] = False
+            ep_num = (item["parsed"].get("episode") if has_distinct_eps else None) or idx_i
+            item["parsed"]["episode"] = ep_num
             item["parsed"]["clean_name"] = f"{series_title} S{season_num:02d}E{ep_num:02d}"
+            ext_m = re.search(r"(\.[a-zA-Z0-9]{2,4})$", item["file_name"])
+            ext_s = ext_m.group(1) if ext_m else ".mp4"
+            item["file_name"] = f"{'.'.join(series_title.split())}.S{season_num:02d}E{ep_num:02d}{ext_s}"
 
         await message.reply_text(f"✅ Set Series: **{series_title} — Season {season_num}** ({len(items)} episodes)!\nForwarding to bin channel now...")
         await process_series_batch(client, user_id, items, status_msg)
@@ -1478,10 +1625,50 @@ def register_handlers(app: Client):
                 status_msg = _batch_buffers[user_id]["status_msg"]
 
             try:
-                file_name = getattr(media, "file_name", None) or f"video_{message.id}.mp4"
+                raw_fn = getattr(media, "file_name", None) or ""
+                ext_m = re.search(r"(\.[a-zA-Z0-9]{2,4})$", raw_fn)
+                ext = ext_m.group(1) if ext_m else ".mp4"
+
+                # 3-Layer Smart Filename & Caption Resolution:
+                # 1. Real filename if present & non-generic
+                # 2. Message caption fallback when media filename is missing or generic (e.g. video_1234.mp4, IMG_4821.MP4, Mixdrop.Ts)
+                # 3. Prompt user for title (needs_title=True) instead of ever saving junk like "Video 14039"
+                caption_title = extract_title_from_caption(message.caption or "")
+                if raw_fn and not is_generic_media_filename(raw_fn):
+                    file_name = raw_fn
+                    parsed = parse_filename(file_name)
+                elif caption_title:
+                    cap_with_ext = caption_title if re.search(r"\.[a-zA-Z0-9]{2,4}$", caption_title) else f"{caption_title}{ext}"
+                    parsed = parse_filename(cap_with_ext)
+                    file_name = parsed.get("golden_name") or cap_with_ext
+                elif raw_fn:
+                    file_name = raw_fn
+                    parsed = parse_filename(file_name)
+                    # Force needs_title on generic junk like Mixdrop.Ts.mp4 or IMG_4821.MP4 or Video.14039.mp4
+                    parsed["needs_title"] = True
+                else:
+                    file_name = f"media_{message.id}{ext}"
+                    parsed = parse_filename(file_name)
+                    parsed["needs_title"] = True
+                    parsed["episode"] = None  # Never treat Telegram message.id as an episode number!
+
+                # Infer video resolution (1080p / 720p / 480p / 4K) directly from Telegram Video stream dimensions when missing!
+                if not parsed.get("quality") and getattr(message, "video", None):
+                    vh = getattr(message.video, "height", 0) or 0
+                    vw = getattr(message.video, "width", 0) or 0
+                    max_dim = max(vw, vh)
+                    min_dim = min(vw, vh)
+                    if max_dim >= 3800 or min_dim >= 2000:
+                        parsed["quality"] = "4K"
+                    elif max_dim >= 1880 or min_dim >= 1000:
+                        parsed["quality"] = "1080p"
+                    elif max_dim >= 1200 or min_dim >= 680:
+                        parsed["quality"] = "720p"
+                    elif max_dim >= 800 or min_dim >= 460:
+                        parsed["quality"] = "480p"
+
                 file_size = getattr(media, "file_size", 0)
                 file_size_str = format_bytes(file_size)
-                parsed = parse_filename(file_name)
 
                 item_data = {
                     "msg": message,
