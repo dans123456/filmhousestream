@@ -134,6 +134,20 @@ def get_canonical_item_key(parsed: dict, file_name: str) -> str:
         norm = "arcane"
     elif norm.startswith("flex_x_cop") or norm.startswith("flexxcop") or norm.startswith("flex_cop") or norm == "flex_cop":
         norm = "flex_x_cop"
+    elif "ossan_newbie_adventurer" in norm:
+        norm = "the_ossan_newbie_adventurer"
+    elif "undefeated_bahamut" in norm:
+        norm = "undefeated_bahamut_chronicle"
+    elif "knights_of_the_apocalypse" in norm:
+        norm = "four_knights_of_the_apocalypse"
+    elif "let_this_grieving_soul_retire" in norm:
+        norm = "let_this_grieving_soul_retire"
+    elif norm in ("gods_game", "gods_games_we_play"):
+        norm = "gods_games_we_play"
+    elif norm.startswith("irregular_at_magic"):
+        norm = "the_irregular_at_magic_high_school"
+    elif norm.startswith("fog_hill_of_five"):
+        norm = "fog_hill_of_five_elements"
 
     is_series = bool(p.get("is_series"))
     if is_series:
@@ -481,6 +495,125 @@ def update_tracked_metadata(message_id: int, updates: dict):
             pass
     except Exception as e:
         logger.error(f"Failed to update tracked media metadata: {e}")
+
+
+def merge_tracked_items(
+    message_ids: List[int],
+    target_title: str,
+    is_series: bool,
+    category: str = None,
+    year: int = None,
+    remember_rule: bool = True,
+) -> int:
+    """
+    Merges multiple tracked media items into one unified Movie or Series folder/title,
+    preserving episode numbers for series and optionally persisting an auto-merge alias rule.
+    """
+    from server.parser import build_golden_filename, parse_filename, safe_int, save_custom_merge
+
+    target_clean = str(target_title or "").strip()
+    if not target_clean or not message_ids:
+        return 0
+
+    id_set = {int(m) for m in message_ids if m is not None}
+    old_titles = set()
+    updated_count = 0
+
+    try:
+        with _storage_lock:
+            records = list(_load_records_raw())
+            for r in records:
+                if r.get("message_id") not in id_set:
+                    continue
+
+                p = dict(r.get("parsed") or {})
+                orig_fn = r.get("original_filename") or r.get("file_name") or ""
+                for existing_t in (p.get("title"), r.get("title")):
+                    if existing_t and str(existing_t).strip():
+                        old_titles.add(str(existing_t).strip())
+
+                p["title"] = target_clean
+                r["title"] = target_clean
+                p["is_series"] = bool(is_series)
+                r["is_series"] = bool(is_series)
+                p["needs_title"] = False
+
+                if year is not None:
+                    y_val = safe_int(year)
+                    p["year"] = y_val
+                    r["year"] = y_val
+
+                if category:
+                    cat_val = str(category).strip().lower()
+                    r["category"] = cat_val
+                    p["category"] = cat_val
+                else:
+                    cat_val = r.get("category") or ("series" if is_series else "movies")
+                    r["category"] = cat_val
+                    p["category"] = cat_val
+
+                if is_series:
+                    if p.get("episode") is None:
+                        fresh = parse_filename(orig_fn)
+                        if fresh.get("episode") is not None:
+                            p["season"] = safe_int(fresh.get("season"), default=p.get("season") or 1)
+                            p["episode"] = safe_int(fresh.get("episode"), default=1)
+                        else:
+                            # Fallback: recover episode digits after removing resolutions/codecs/years/sizes
+                            cleaned_ep_scan = re.sub(r"[\[\]\(\)_\.]", " ", orig_fn)
+                            cleaned_ep_scan = re.sub(r"\b(19\d{2}|20\d{2})\b", "", cleaned_ep_scan)
+                            cleaned_ep_scan = re.sub(r"\b(2160p|1440p|1080p|720p|576p|540p|480p|360p|4k|x264|x265|h264|h265|10bit|6ch|2ch)\b", "", cleaned_ep_scan, flags=re.IGNORECASE)
+                            cleaned_ep_scan = re.sub(r"\b\d+(?:\.\d+)?\s*(?:mb|gb)\b", "", cleaned_ep_scan, flags=re.IGNORECASE)
+                            ep_m = re.search(r"\b(?:ep|episode|e)?\s*0?(\d{1,4})\b", cleaned_ep_scan, re.IGNORECASE)
+                            p["episode"] = int(ep_m.group(1)) if ep_m else 1
+                            p["season"] = safe_int(p.get("season"), default=1)
+                    else:
+                        p["season"] = safe_int(p.get("season"), default=1)
+                        p["episode"] = safe_int(p.get("episode"), default=1)
+                else:
+                    p["season"] = None
+                    p["episode"] = None
+
+                q_sfx_s = f" ({p['quality']})" if p.get("quality") else ""
+                q_sfx_m = f" [{p['quality']}]" if p.get("quality") else ""
+                if is_series:
+                    ep_sub = f" — {p['episode_title']}" if p.get("episode_title") else ""
+                    p["clean_name"] = f"{target_clean} S{p['season']:02d}E{p['episode']:02d}{ep_sub}{q_sfx_s}"
+                else:
+                    y_sfx = f" ({p['year']})" if p.get("year") else ""
+                    p["clean_name"] = f"{target_clean}{y_sfx}{q_sfx_m}"
+
+                golden = build_golden_filename(p, orig_fn)
+                p["golden_name"] = golden
+                r["file_name"] = golden
+                r["parsed"] = p
+                updated_count += 1
+
+            if updated_count > 0:
+                _save_records_atomic(records)
+
+        if updated_count > 0 and remember_rule and old_titles:
+            save_custom_merge(
+                list(old_titles),
+                target_clean,
+                bool(is_series),
+                category=category,
+                year=safe_int(year) if year is not None else None,
+            )
+
+        try:
+            from server.tmdb_auditor import invalidate_series_audit
+            for ot in old_titles:
+                invalidate_series_audit(ot)
+            invalidate_series_audit(target_clean)
+        except Exception:
+            pass
+
+        logger.info(f"Merged {updated_count} record(s) into '{target_clean}' (is_series={is_series}, remember={remember_rule}).")
+        return updated_count
+    except Exception as e:
+        logger.error(f"Failed to merge tracked items: {e}", exc_info=True)
+        return 0
 
 
 def heal_stored_series_ledger():

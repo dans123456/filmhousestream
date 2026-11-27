@@ -1040,19 +1040,99 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       gap: 4px;
     }
     .btn-bulk-delete {
-      padding: 8px 16px;
+      padding: 8px 14px;
       background: #ef4444;
       color: #fff;
       border: none;
       border-radius: 10px;
       font-weight: 700;
-      font-size: 0.82rem;
+      font-size: 0.8rem;
       cursor: pointer;
       transition: all 0.2s;
+      white-space: nowrap;
     }
     .btn-bulk-delete:disabled {
       opacity: 0.4;
       cursor: not-allowed;
+    }
+    .btn-bulk-merge {
+      padding: 8px 14px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: #fff;
+      border: 1px solid rgba(165, 180, 252, 0.4);
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .btn-bulk-merge:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .series-folder-card.selected, .multi-quality-card.selected {
+      border-color: rgba(255, 188, 0, 0.65) !important;
+      box-shadow: 0 0 18px rgba(255, 188, 0, 0.2);
+    }
+    .ep-range-tabs {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      padding: 8px 10px 4px 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .ep-range-tabs::-webkit-scrollbar { display: none; }
+    .ep-range-pill {
+      padding: 4px 10px;
+      border-radius: 8px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      background: rgba(255, 255, 255, 0.05);
+      color: #cbd5e1;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s;
+    }
+    .ep-range-pill.active {
+      background: linear-gradient(135deg, #6366f1, #7c3aed);
+      color: #fff;
+      border-color: #818cf8;
+      box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
+    }
+    .merge-chips-wrap {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    .merge-chip {
+      padding: 4px 10px;
+      border-radius: 8px;
+      background: rgba(99, 102, 241, 0.16);
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      color: #c7d2fe;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .merge-chip:hover {
+      background: rgba(99, 102, 241, 0.35);
+      color: #fff;
+    }
+    @media (max-width: 520px) {
+      .bulk-bar {
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 8px 10px;
+      }
+      .btn-bulk-merge, .btn-bulk-category, .btn-bulk-delete {
+        padding: 7px 10px;
+        font-size: 0.74rem;
+      }
     }
     .btn-bulk-cancel {
       background: rgba(255, 255, 255, 0.08);
@@ -1403,7 +1483,8 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       <span id="selectAllIcon">☑️</span> <span id="selectAllLabel">All</span>
     </button>
     <span id="selectedCountBadge" class="bulk-count">0 Selected</span>
-    <button id="bulkCatBtn" class="btn-bulk-category" onclick="openBulkCategoryModal()" disabled>🏷️ Set Category</button>
+    <button id="bulkMergeBtn" class="btn-bulk-merge" onclick="openMergeModal()" disabled>🔗 Merge</button>
+    <button id="bulkCatBtn" class="btn-bulk-category" onclick="openBulkCategoryModal()" disabled>🏷️ Category</button>
     <button id="bulkDeleteBtn" class="btn-bulk-delete" onclick="executeBulkDelete()" disabled>🗑️ Delete</button>
     <button class="btn-bulk-cancel" onclick="exitSelectMode()" title="Cancel Selection">✕</button>
   </div>
@@ -1438,6 +1519,64 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         <button class="cat-modal-btn" onclick="applyCategoryChange('cartoons')">🎨 Cartoons & Animation</button>
       </div>
       <button onclick="closeCategoryModal()" class="btn" style="width:100%; margin-top:10px; background:rgba(255,255,255,0.06); color:#94a3b8;">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Merge Split Folders / Movies Modal -->
+  <div id="mergeModal" class="auth-overlay" style="display:none;">
+    <div class="auth-card" style="max-width: 390px; text-align: left;">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+        <span style="font-size:1.4rem;">🔗</span>
+        <div>
+          <h2 style="font-size:1.1rem; margin:0; color:#fff;">Merge Into One Folder</h2>
+          <p id="mergeModalDesc" style="font-size:0.75rem; color:#94a3b8; margin:0;">Combine split anime, series, or movie files into one unified folder</p>
+        </div>
+      </div>
+
+      <div id="mergeTitleChipsLabel" style="font-size:0.72rem; color:#94a3b8; margin-bottom:5px; font-weight:600;">Tap a detected title to use it:</div>
+      <div id="mergeTitleChips" class="merge-chips-wrap"></div>
+
+      <div style="margin-bottom:10px;">
+        <label style="font-size:0.75rem; color:#a5b4fc; font-weight:600; display:block; margin-bottom:4px;">Unified Folder / Title Name</label>
+        <input type="text" id="mergeTitleInput" class="auth-input" style="width:100%; box-sizing:border-box; margin:0; text-align:left; letter-spacing:0;" placeholder="e.g. Black Clover or Four Knights of the Apocalypse">
+      </div>
+
+      <div style="display:flex; gap:10px; margin-bottom:10px;">
+        <div style="flex:1.4;">
+          <label style="font-size:0.75rem; color:#a5b4fc; font-weight:600; display:block; margin-bottom:4px;">Folder Type</label>
+          <select id="mergeTypeSelect" class="auth-input" style="width:100%; box-sizing:border-box; margin:0; background:#12141d; color:#fff; text-align:left; letter-spacing:0;">
+            <option value="true">📺 Series / Anime Folder</option>
+            <option value="false">🎬 Movie Card (Same Folder)</option>
+          </select>
+        </div>
+        <div style="flex:1;">
+          <label style="font-size:0.75rem; color:#a5b4fc; font-weight:600; display:block; margin-bottom:4px;">Year (Opt.)</label>
+          <input type="number" id="mergeYearInput" class="auth-input" style="width:100%; box-sizing:border-box; margin:0;" placeholder="e.g. 2024" min="1900" max="2099">
+        </div>
+      </div>
+
+      <div style="margin-bottom:10px;">
+        <label style="font-size:0.75rem; color:#a5b4fc; font-weight:600; display:block; margin-bottom:4px;">Category Hub</label>
+        <select id="mergeCategorySelect" class="auth-input" style="width:100%; box-sizing:border-box; margin:0; background:#12141d; color:#fff; text-align:left; letter-spacing:0;">
+          <option value="anime">⚔️ Anime</option>
+          <option value="series">📺 Western TV Series</option>
+          <option value="movies">🎬 Hollywood & Global Movies</option>
+          <option value="kdrama">🌸 K-Drama & Asian Drama</option>
+          <option value="african">🌍 African Cinema & Nollywood</option>
+          <option value="bollywood">👳 Bollywood & Indian</option>
+          <option value="cartoons">🎨 Cartoons & Animation</option>
+        </select>
+      </div>
+
+      <div style="margin-bottom:14px; background:rgba(99,102,241,0.12); border:1px solid rgba(99,102,241,0.3); border-radius:8px; padding:8px 10px; display:flex; align-items:center; gap:8px;">
+        <input type="checkbox" id="mergeRememberRule" checked style="width:16px; height:16px; accent-color:#6366f1; cursor:pointer;">
+        <label for="mergeRememberRule" style="font-size:0.76rem; color:#e0e7ff; cursor:pointer; font-weight:600;">Remember rule &amp; auto-merge future uploads with these names</label>
+      </div>
+
+      <div style="display:flex; gap:8px;">
+        <button onclick="closeMergeModal()" class="btn" style="flex:1; background:rgba(255,255,255,0.06); color:#94a3b8;">Cancel</button>
+        <button onclick="submitMergeMedia()" class="btn" style="flex:1.6; background:linear-gradient(135deg, #6366f1, #8b5cf6); color:#fff; font-weight:700;">🔗 Merge Into One</button>
+      </div>
     </div>
   </div>
 
@@ -1776,7 +1915,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       document.getElementById('selectToggleBtn').textContent = '☑️ Select';
       document.getElementById('bulkActionBar').style.display = 'none';
       document.getElementById('mediaGrid').classList.remove('select-mode-active');
-      document.querySelectorAll('.media-card').forEach(c => c.classList.remove('selected'));
+      document.querySelectorAll('.media-card, .episode-row, .quality-version-row, .series-folder-card, .multi-quality-card').forEach(c => c.classList.remove('selected'));
       document.querySelectorAll('.card-checkbox input').forEach(cb => cb.checked = false);
     }
 
@@ -1791,6 +1930,31 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         card?.classList.remove('selected');
       }
       updateBulkUI();
+    }
+
+    function onGroupCheck(event, canonicalKey) {
+      event.stopPropagation();
+      const meta = window.seriesMetaMap && window.seriesMetaMap[canonicalKey];
+      const mids = (meta && meta.mids) || [];
+      if (event.target.checked) {
+        mids.forEach(id => selectedIds.add(id));
+      } else {
+        mids.forEach(id => selectedIds.delete(id));
+      }
+      updateBulkUI();
+      renderMedia();
+    }
+
+    function onMovieGroupCheck(event, groupKey) {
+      event.stopPropagation();
+      const mids = (window.movieGroupMap && window.movieGroupMap[groupKey]) || [];
+      if (event.target.checked) {
+        mids.forEach(id => selectedIds.add(id));
+      } else {
+        mids.forEach(id => selectedIds.delete(id));
+      }
+      updateBulkUI();
+      renderMedia();
     }
 
     function toggleSelectAll() {
@@ -1829,6 +1993,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       const countBadge = document.getElementById('selectedCountBadge');
       const deleteBtn = document.getElementById('bulkDeleteBtn');
       const bulkCatBtn = document.getElementById('bulkCatBtn');
+      const bulkMergeBtn = document.getElementById('bulkMergeBtn');
       const selectAllLabel = document.getElementById('selectAllLabel');
 
       countBadge.textContent = `${count} Selected`;
@@ -1836,11 +2001,115 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       deleteBtn.textContent = count > 0 ? `🗑️ Delete (${count})` : '🗑️ Delete';
       if (bulkCatBtn) {
         bulkCatBtn.disabled = count === 0;
-        bulkCatBtn.textContent = count > 0 ? `🏷️ Set Category (${count})` : '🏷️ Set Category';
+        bulkCatBtn.textContent = count > 0 ? `🏷️ Category (${count})` : '🏷️ Category';
+      }
+      if (bulkMergeBtn) {
+        bulkMergeBtn.disabled = count < 2;
+        bulkMergeBtn.textContent = count >= 2 ? `🔗 Merge (${count})` : '🔗 Merge';
       }
 
       const visibleCount = document.querySelectorAll('.media-card, .episode-row, .quality-version-row').length;
       selectAllLabel.textContent = (count === visibleCount && visibleCount > 0) ? 'None' : 'All';
+    }
+
+    function openMergeModal() {
+      if (selectedIds.size < 2) {
+        showToast("⚠️ Select at least 2 files or folders to merge.");
+        return;
+      }
+      const selectedItems = allMedia.filter(m => selectedIds.has(m.message_id));
+      if (selectedItems.length < 2) return;
+
+      // Gather unique candidate titles from selected items for 1-tap selection
+      const titleSet = new Map();
+      const catCounts = {};
+      let seriesVotes = 0;
+      let movieVotes = 0;
+      let detectedYear = null;
+
+      selectedItems.forEach(it => {
+        const rawT = it.series_title || (it.display_name || it.file_name || '').replace(/\s*[\[\(].*$/, '').trim();
+        if (rawT && !titleSet.has(rawT.toLowerCase())) {
+          titleSet.set(rawT.toLowerCase(), rawT);
+        }
+        const c = it.category || (it.is_series ? 'series' : 'movies');
+        catCounts[c] = (catCounts[c] || 0) + 1;
+        if (it.is_series) seriesVotes++; else movieVotes++;
+        if (it.year && !detectedYear) detectedYear = it.year;
+      });
+
+      const candidates = Array.from(titleSet.values());
+      const topCat = Object.entries(catCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'anime';
+      const defaultIsSeries = seriesVotes > 0;
+      const defaultTitle = candidates.find(t => t.length >= 3) || candidates[0] || '';
+
+      document.getElementById('mergeModalDesc').textContent = `Combine ${selectedItems.length} selected files into one unified folder`;
+      document.getElementById('mergeTitleInput').value = defaultTitle;
+      document.getElementById('mergeTypeSelect').value = defaultIsSeries ? 'true' : 'false';
+      document.getElementById('mergeCategorySelect').value = topCat;
+      document.getElementById('mergeYearInput').value = detectedYear || '';
+      document.getElementById('mergeRememberRule').checked = true;
+
+      const chipsEl = document.getElementById('mergeTitleChips');
+      const chipsLbl = document.getElementById('mergeTitleChipsLabel');
+      if (candidates.length > 0) {
+        chipsLbl.style.display = 'block';
+        chipsEl.innerHTML = candidates.map(t =>
+          `<button type="button" class="merge-chip" onclick="document.getElementById('mergeTitleInput').value = this.dataset.title" data-title="${escapeHtml(t)}">${escapeHtml(t)}</button>`
+        ).join('');
+      } else {
+        chipsLbl.style.display = 'none';
+        chipsEl.innerHTML = '';
+      }
+
+      document.getElementById('mergeModal').style.display = 'flex';
+    }
+
+    function closeMergeModal() {
+      document.getElementById('mergeModal').style.display = 'none';
+    }
+
+    async function submitMergeMedia() {
+      const targetTitle = document.getElementById('mergeTitleInput').value.trim();
+      const isSeries = document.getElementById('mergeTypeSelect').value === 'true';
+      const category = document.getElementById('mergeCategorySelect').value;
+      const rawYear = document.getElementById('mergeYearInput').value.trim();
+      const year = rawYear ? parseInt(rawYear) : null;
+      const rememberRule = Boolean(document.getElementById('mergeRememberRule')?.checked);
+      const mids = Array.from(selectedIds);
+
+      if (!targetTitle || mids.length < 2) {
+        alert("Please enter a unified folder/title name and select at least 2 items.");
+        return;
+      }
+
+      closeMergeModal();
+      showToast("🔗 Merging into one folder...");
+
+      try {
+        const res = await fetch('/api/media/merge', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({
+            message_ids: mids,
+            target_title: targetTitle,
+            is_series: isSeries,
+            category: category,
+            year: year,
+            remember_rule: rememberRule
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`✅ Merged ${data.updated_count} files into "${targetTitle}"!`);
+          exitSelectMode();
+          await loadMedia(true);
+        } else {
+          alert("Error merging folder: " + (data.error || "Unknown error"));
+        }
+      } catch (e) {
+        alert("Failed to merge folder: " + e.message);
+      }
     }
 
     async function executeBulkDelete() {
@@ -1932,9 +2201,26 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       }
       norm = norm.replace(/_[0-9]$/, '');
 
+      // Strip A.K.A. suffix and any residual resolution/descriptors
+      norm = norm.replace(/_a_k_a_.*$/, '');
+
       // Known Franchise Aliases
       if (norm === 'forever' || norm.startsWith('forever_')) return 'forever';
       if (norm.startsWith('avatar_aang') || norm.startsWith('avatar_the_last_airbender') || norm.startsWith('legend_of_aang') || norm.includes('last_airbender')) return 'avatar_the_last_airbender';
+      if (norm.includes('ossan_newbie_adventurer')) return 'the_ossan_newbie_adventurer';
+      if (norm.includes('undefeated_bahamut')) return 'undefeated_bahamut_chronicle';
+      if (norm.includes('knights_of_the_apocalypse')) return 'four_knights_of_the_apocalypse';
+      if (norm.includes('let_this_grieving_soul_retire')) return 'let_this_grieving_soul_retire';
+      if (norm === 'gods_game' || norm === 'gods_games_we_play') return 'gods_games_we_play';
+      if (norm.startsWith('irregular_at_magic')) return 'the_irregular_at_magic_high_school';
+      if (norm.startsWith('fog_hill_of_five')) return 'fog_hill_of_five_elements';
+      if (norm.includes('marvel_disk_wars')) return 'marvel_disk_wars_the_avengers';
+      if (norm.includes('agents_of_s_h_i_e_l') || norm.includes('agent_of_shield')) return norm.includes('slingshot') ? 'marvels_agents_of_shield_slingshot' : 'marvels_agents_of_shield';
+      if (norm.includes('moon_girl_and_devil_dinosaur')) return 'marvels_moon_girl_and_devil_dinosaur';
+      if (norm.includes('avengers_earths_mightiest_heroes')) return 'avengers_earths_mightiest_heroes';
+      if (norm.includes('avengers_assemble')) return 'marvels_avengers_assemble';
+      if (norm.includes('x_men_97')) return 'x_men_97';
+      if (norm.includes('silver_surfer') && norm.includes('animated')) return 'silver_surfer_the_animated_series';
       if (norm.includes('legend_of_korra')) return 'the_legend_of_korra';
       if (norm.includes('one_of_us_is_lying') || norm.includes('on_of_us_is_lying') || norm === 'of_us_is_lying') return 'one_of_us_is_lying';
       if (norm.startsWith('wandavision')) return 'wandavision';
@@ -2026,6 +2312,20 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       if (col.includes('nerotheassassin')) return 'Néro The Assassin';
 
       if (col === 'arcane' || col.startsWith('arcaneleagueoflegends')) return 'Arcane';
+      if (col.includes('ossannewbieadventurer')) return 'The Ossan Newbie Adventurer';
+      if (col.includes('undefeatedbahamut')) return 'Undefeated Bahamut Chronicle';
+      if (col.includes('knightsoftheapocalypse')) return 'Four Knights of the Apocalypse';
+      if (col.includes('letthisgrievingsoulretire')) return 'Let This Grieving Soul Retire';
+      if (col === 'godsgame' || col === 'godsgamesweplay') return "Gods' Games We Play";
+      if (col.startsWith('irregularatmagic')) return 'The Irregular at Magic High School';
+      if (col.startsWith('foghillooffive') || col.startsWith('foghilloffive')) return 'Fog Hill of Five Elements';
+      if (col.includes('marveldiskwars')) return 'Marvel Disk Wars: The Avengers';
+      if (col.includes('agentsofshiel') || col.includes('agentofshield')) return col.includes('slingshot') ? "Marvel's Agents of S.H.I.E.L.D.: Slingshot" : "Marvel's Agents of S.H.I.E.L.D.";
+      if (col.includes('moongirlanddevildinosaur')) return "Marvel's Moon Girl and Devil Dinosaur";
+      if (col.includes('avengersearthsmightiestheroes')) return "The Avengers: Earth's Mightiest Heroes";
+      if (col.includes('avengersassemble')) return "Marvel's Avengers Assemble";
+      if (col.includes('xmen97')) return "X-Men '97";
+      if (col.includes('silversurfer') && col.includes('animated')) return 'Silver Surfer: The Animated Series';
       if (col.startsWith('maxtonhall')) return 'Maxton Hall';
       if (col === 'motherofthebride' || col === 'motherofthebrides' || col === 'motherofbrides') return 'Mother Of The Brides';
       if (col.includes('oneofusislying') || col.includes('onofusislying') || col === 'ofusislying') return 'One of Us Is Lying';
@@ -2054,10 +2354,28 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       return clean || rawTitle;
     }
 
-    // Track expanded folders and collapsed seasons
+    // Track expanded folders, collapsed seasons, and 50-ep range tabs
     const expandedFolders = new Set();
     const collapsedSeasons = new Set();
     window.seasonDataMap = {};
+    window.seasonRangeMap = {};
+    window.activeEpRange = {};
+    window.movieGroupMap = {};
+
+    function setSeasonEpRange(event, seasonKey, rangeIdx) {
+      if (event) event.stopPropagation();
+      window.activeEpRange[seasonKey] = rangeIdx;
+      renderMedia();
+    }
+
+    function copyRangeLinks(event, seasonKey, label) {
+      if (event) event.stopPropagation();
+      const eps = (window.seasonRangeMap && window.seasonRangeMap[seasonKey]) || [];
+      if (!eps || eps.length === 0) return;
+      const text = eps.map(e => `• Ep ${e.episode || 1}: ${e.stream_url}`).join('\n');
+      copyToClipboard(text);
+      showToast(`📋 Copied ${eps.length} links (${label})!`);
+    }
 
     function toggleFolder(key) {
       if (expandedFolders.has(key)) {
@@ -2676,7 +2994,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         }
       });
 
-      // 2. Render Movies (with Smart Multi-Quality Grouping)
+      // 2. Render Movies (with Smart Multi-Quality & Same-Folder Grouping)
       const movieGroups = {};
       standaloneItems.forEach(item => {
         const cleanTitle = (item.display_name || item.file_name || '')
@@ -2688,8 +3006,13 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
 
         const groupKey = cleanTitle || (item.display_name || item.file_name).toLowerCase();
         if (!movieGroups[groupKey]) {
+          const cardDisplayTitle = (item.display_name || item.file_name || '')
+            .replace(/\s*\[\s*(1080p|720p|480p|2160p|4k|uhd|hd)\s*\]\s*/gi, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
           movieGroups[groupKey] = {
-            title: item.display_name || item.file_name,
+            groupKey: groupKey,
+            title: cardDisplayTitle || item.display_name || item.file_name,
             category: item.category || 'movies',
             items: []
           };
@@ -2727,19 +3050,24 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           }
         }
 
+        const folderMids = group.allEpisodes.map(ep => ep.message_id).filter(Boolean);
         window.seriesMetaMap[group.canonicalKey] = {
           firstMid: group.firstMid,
           title: group.title,
           year: group.year,
           category: group.category,
-          mids: group.allEpisodes.map(ep => ep.message_id).filter(Boolean),
+          mids: folderMids,
         };
+        const allFolderChecked = folderMids.length > 0 && folderMids.every(id => selectedIds.has(id));
 
         subHtml += `
-        <div class="series-folder-card ${auditInfo ? 'folder-incomplete' : ''}" style="${auditInfo ? 'border-color: rgba(239,68,68,0.4);' : ''}">
+        <div class="series-folder-card ${auditInfo ? 'folder-incomplete' : ''} ${allFolderChecked ? 'selected' : ''}" style="${auditInfo ? 'border-color: rgba(239,68,68,0.4);' : ''}">
           <div class="folder-header" onclick="toggleFolder('${group.canonicalKey}')">
-            <!-- Row 1: Title, Icon, Status & Expand Arrow -->
+            <!-- Row 1: Checkbox, Icon, Title, Status & Expand Arrow -->
             <div class="folder-header-top">
+              <div class="card-checkbox" onclick="event.stopPropagation()">
+                <input type="checkbox" ${allFolderChecked ? 'checked' : ''} onchange="onGroupCheck(event, '${group.canonicalKey}')" title="Select entire folder">
+              </div>
               <div class="folder-icon">${auditInfo ? '⚠️' : '📺'}</div>
               <div class="folder-title-wrap">
                 <div class="folder-name-row">
@@ -2831,9 +3159,41 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
                     </div>
                   </div>
 
-                  ${isSeasonOpen ? `
+                  ${isSeasonOpen ? (() => {
+                    const CHUNK = 50;
+                    const useRangeTabs = seasonEpisodes.length > CHUNK && !query;
+                    const totalChunks = useRangeTabs ? Math.ceil(seasonEpisodes.length / CHUNK) : 1;
+                    let activeRange = (window.activeEpRange && window.activeEpRange[seasonKey] !== undefined) ? window.activeEpRange[seasonKey] : 0;
+                    if (activeRange >= totalChunks) activeRange = 0;
+
+                    let displayedEpisodes = seasonEpisodes;
+                    let activeRangeLabel = `Ep 1–${seasonEpisodes.length}`;
+                    if (useRangeTabs && activeRange !== -1) {
+                      const sliceStart = activeRange * CHUNK;
+                      displayedEpisodes = seasonEpisodes.slice(sliceStart, sliceStart + CHUNK);
+                      const firstEp = displayedEpisodes[0]?.episode || (sliceStart + 1);
+                      const lastEp = displayedEpisodes[displayedEpisodes.length - 1]?.episode || (sliceStart + displayedEpisodes.length);
+                      activeRangeLabel = `Ep ${firstEp}–${lastEp}`;
+                    }
+                    window.seasonRangeMap[seasonKey] = displayedEpisodes;
+
+                    let rangeTabsHtml = '';
+                    if (useRangeTabs) {
+                      const pills = [];
+                      for (let rIdx = 0; rIdx < totalChunks; rIdx++) {
+                        const rSlice = seasonEpisodes.slice(rIdx * CHUNK, (rIdx + 1) * CHUNK);
+                        const fEp = rSlice[0]?.episode || (rIdx * CHUNK + 1);
+                        const lEp = rSlice[rSlice.length - 1]?.episode || (rIdx * CHUNK + rSlice.length);
+                        pills.push(`<button type="button" class="ep-range-pill ${activeRange === rIdx ? 'active' : ''}" onclick="setSeasonEpRange(event, '${seasonKey}', ${rIdx})">Ep ${fEp}–${lEp}</button>`);
+                      }
+                      pills.push(`<button type="button" class="ep-range-pill ${activeRange === -1 ? 'active' : ''}" onclick="setSeasonEpRange(event, '${seasonKey}', -1)">All (${seasonEpisodes.length})</button>`);
+                      rangeTabsHtml = `<div class="ep-range-tabs">${pills.join('')}</div>`;
+                    }
+
+                    return `
+                    ${rangeTabsHtml}
                     <div class="episodes-wrapper" style="padding: 10px;">
-                      ${seasonEpisodes.map(ep => {
+                      ${displayedEpisodes.map(ep => {
                         const isChecked = selectedIds.has(ep.message_id);
                         const epSub = ep.episode_title ? ` — ${ep.episode_title}` : '';
                         return `
@@ -2861,12 +3221,18 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
                       }).join('')}
                     </div>
 
-                    <div class="folder-admin-bar" style="margin: 0 10px 10px 10px;">
+                    <div class="folder-admin-bar" style="margin: 0 10px 10px 10px; flex-wrap:wrap;">
+                      ${useRangeTabs && activeRange !== -1 ? `
+                        <button class="btn-folder-all" onclick="copyRangeLinks(event, '${seasonKey}', '${activeRangeLabel}')" style="background:rgba(99,102,241,0.16); color:#c7d2fe; border-color:rgba(99,102,241,0.35);">
+                          📋 Copy ${activeRangeLabel} (${displayedEpisodes.length})
+                        </button>
+                      ` : ''}
                       <button class="btn-folder-all" onclick="copyAllSeasonLinks(event, '${seasonKey}', ${sNum})">
                         📋 Copy All Season ${sNum} Links (${seasonEpisodes.length})
                       </button>
                     </div>
-                  ` : ''}
+                  `;
+                  })() : ''}
                 </div>
                 `;
               }).join('')}
@@ -2916,17 +3282,24 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
           </div>
           `;
         } else {
-          // Multi-Quality Grouped Movie Card
+          // Multi-Quality / Same-Folder Grouped Movie Card
           const qualityTags = mGroup.items.map(it => it.quality || 'HD');
+          const mGroupMids = mGroup.items.map(it => it.message_id).filter(Boolean);
+          const safeMKey = `mg_${mGroupMids.join('_')}`;
+          window.movieGroupMap[safeMKey] = mGroupMids;
+          const allMovieChecked = mGroupMids.length > 0 && mGroupMids.every(id => selectedIds.has(id));
           subHtml += `
-          <div class="multi-quality-card">
+          <div class="multi-quality-card ${allMovieChecked ? 'selected' : ''}">
             <div class="card-top">
+              <div class="card-checkbox" onclick="event.stopPropagation()">
+                <input type="checkbox" ${allMovieChecked ? 'checked' : ''} onchange="onMovieGroupCheck(event, '${safeMKey}')" title="Select entire movie folder">
+              </div>
               <div class="card-title-wrap">
                 <div class="card-title" style="font-size:1.05rem;">🎬 ${escapeHtml(mGroup.title)}</div>
               </div>
               <div style="display:flex; align-items:center; gap:6px;">
-                <span class="badge-category" onclick="openCategoryModal(event, [${mGroup.items.map(it => it.message_id).filter(Boolean).join(',')}])" title="Change Category for All Versions">${catObj.icon} ${catObj.tag} ▾</span>
-                <span class="multi-quality-badge">✨ ${mGroup.items.length} Qualities</span>
+                <span class="badge-category" onclick="openCategoryModal(event, [${mGroupMids.join(',')}])" title="Change Category for All Versions">${catObj.icon} ${catObj.tag} ▾</span>
+                <span class="multi-quality-badge">✨ ${mGroup.items.length} Files</span>
               </div>
             </div>
             <div class="card-meta" style="margin-top: -4px;">

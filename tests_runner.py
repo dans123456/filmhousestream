@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import config
+import server.parser as parser_mod
 from server.parser import parse_filename
 from server.security import (
     generate_stream_token,
@@ -23,7 +24,7 @@ from server.security import (
 )
 from server.cache import get_cached_chunk, store_cached_chunk, get_cache_stats
 from server.stream_server import format_bytes, parse_range_header
-from bot.storage import record_indexed_file, get_tracked_files, remove_tracked_files
+from bot.storage import record_indexed_file, get_tracked_files, remove_tracked_files, merge_tracked_items
 
 def test_parser():
     print("[TEST] Running parser tests...")
@@ -46,6 +47,46 @@ def test_parser():
     t3 = parse_filename("Shogun_1x01_Anjin_720p.mp4")
     assert t3["is_series"] == True
     assert t3["season"] == 1 and t3["episode"] == 1
+
+    # Anime & bracket/symbol evasion & 3-digit episodes
+    a1 = parse_filename("[E017] Black Clover [720p] [Dual].mkv")
+    assert a1["is_series"] == True and a1["season"] == 1 and a1["episode"] == 17, f"Got {a1}"
+    assert a1["title"] == "Black Clover" and a1["category"] == "anime", f"Got {a1}"
+
+    a2 = parse_filename("[E170] Black Clover [720p] [Dual].mkv")
+    assert a2["is_series"] == True and a2["season"] == 1 and a2["episode"] == 170, f"Got {a2}"
+    assert a2["title"] == "Black Clover" and a2["category"] == "anime", f"Got {a2}"
+
+    a3 = parse_filename("_S01_01_The_Ossan_Newbie_Adventurer_1080p_Sub_@Animes_Ocean.mkv")
+    assert a3["is_series"] == True and a3["season"] == 1 and a3["episode"] == 1, f"Got {a3}"
+    assert a3["title"] == "The Ossan Newbie Adventurer" and a3["category"] == "anime", f"Got {a3}"
+
+    a4 = parse_filename("[S01-08] Ossan Newbie Adventurer [1080p] [Sub] @Animes_Ocean.mkv")
+    assert a4["is_series"] == True and a4["season"] == 1 and a4["episode"] == 8, f"Got {a4}"
+    assert a4["title"] == "The Ossan Newbie Adventurer" and a4["category"] == "anime", f"Got {a4}"
+
+    a5 = parse_filename("10 - Undefeated Bahamut Chronicals.mkv")
+    assert a5["is_series"] == True and a5["season"] == 1 and a5["episode"] == 10, f"Got {a5}"
+    assert a5["title"] == "Undefeated Bahamut Chronicle" and a5["category"] == "anime", f"Got {a5}"
+
+    a6 = parse_filename("๏ 01 God Eater Dual 1080p.mkv")
+    assert a6["is_series"] == True and a6["season"] == 1 and a6["episode"] == 1, f"Got {a6}"
+    assert a6["title"] == "God Eater" and a6["category"] == "anime", f"Got {a6}"
+
+    a7 = parse_filename("๏ S2 01 Goblin Slayer Dual 1080p.mkv")
+    assert a7["is_series"] == True and a7["season"] == 2 and a7["episode"] == 1, f"Got {a7}"
+    assert a7["title"] == "Goblin Slayer" and a7["category"] == "anime", f"Got {a7}"
+
+    a8 = parse_filename("@Entirelything. Classroom For Heroes [S01-€03] [1080p].mkv")
+    assert a8["is_series"] == True and a8["season"] == 1 and a8["episode"] == 3, f"Got {a8}"
+    assert a8["title"].lower() == "classroom for heroes" and a8["category"] == "anime", f"Got {a8}"
+
+    # Movies protected against 'web' / numeric splits
+    m1 = parse_filename("Madame.Web.2024.1080p.10bit.WEBRip.6CH.x265.HEVC-PSA.mkv")
+    assert m1["is_series"] == False and m1["year"] == 2024 and m1["title"] == "Madame Web", f"Got {m1}"
+
+    m2 = parse_filename("365.Days.2020.1080p.WEBRip.mp4")
+    assert m2["is_series"] == False and m2["year"] == 2020 and m2["title"] == "365 Days", f"Got {m2}"
 
     print("  ✅ Parser tests passed!")
 
@@ -181,6 +222,57 @@ def test_telegram_init_data():
 
     print("  ✅ Telegram initData HMAC validation tests passed!")
 
+
+def test_merge_and_custom_rules():
+    print("[TEST] Running folder merge & custom merge rules tests...")
+    merges_file = parser_mod.CUSTOM_MERGES_FILE
+    had_file = merges_file.exists()
+    orig_content = merges_file.read_text(encoding="utf-8") if had_file else None
+    test_mids = [99999901, 99999902]
+
+    try:
+        remove_tracked_files(test_mids)
+        fn1 = "Split Anime Part A S01E01.mkv"
+        fn2 = "Split Anime Part B 02 1080p.mkv"
+        record_indexed_file(test_mids[0], fn1, parse_filename(fn1), "250 MB")
+        record_indexed_file(test_mids[1], fn2, parse_filename(fn2), "260 MB")
+
+        updated = merge_tracked_items(
+            test_mids,
+            target_title="Unified Test Anime",
+            is_series=True,
+            category="anime",
+            remember_rule=True,
+        )
+        assert updated == 2, f"Expected 2 updated records, got {updated}"
+
+        tracked = {r.get("message_id"): r for r in get_tracked_files() if r.get("message_id") in test_mids}
+        assert len(tracked) == 2, f"Expected 2 tracked records, got {len(tracked)}"
+        for mid, expected_ep in ((test_mids[0], 1), (test_mids[1], 2)):
+            rec = tracked[mid]
+            p = rec.get("parsed") or {}
+            assert p.get("title") == "Unified Test Anime", f"Unexpected title: {p}"
+            assert rec.get("title") == "Unified Test Anime"
+            assert p.get("is_series") is True
+            assert rec.get("category") == "anime" and p.get("category") == "anime"
+            assert p.get("episode") == expected_ep, f"Expected ep {expected_ep}, got {p.get('episode')}"
+
+        future_parsed = parse_filename("Split Anime Part B S01E05 1080p.mkv")
+        assert future_parsed["title"] == "Unified Test Anime", f"Rule not applied: {future_parsed}"
+        assert future_parsed["category"] == "anime", f"Category override not applied: {future_parsed}"
+        assert future_parsed["episode"] == 5
+
+        print("  ✅ Folder merge & custom rules tests passed!")
+    finally:
+        remove_tracked_files(test_mids)
+        if had_file:
+            merges_file.write_text(orig_content, encoding="utf-8")
+        elif merges_file.exists():
+            merges_file.unlink()
+        parser_mod._custom_merges_cache = None
+        parser_mod._custom_merges_mtime = -1.0
+
+
 if __name__ == "__main__":
     test_parser()
     test_security_tokens()
@@ -188,4 +280,5 @@ if __name__ == "__main__":
     test_range_parser()
     test_admin_auth()
     test_telegram_init_data()
+    test_merge_and_custom_rules()
     print("\n🎉 ALL TESTS PASSED SUCCESSFULLY! ZERO BUGS FOUND.")

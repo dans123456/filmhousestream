@@ -17,9 +17,9 @@ from server.security import (
     verify_admin_access,
     check_rate_limit,
 )
-from server.parser import parse_filename, build_golden_filename, safe_int
+from server.parser import parse_filename, build_golden_filename, safe_int, load_custom_merges, normalize_merge_key
 from server.cache import get_cached_chunk, store_cached_chunk, get_cache_stats
-from bot.storage import get_tracked_files, remove_tracked_files, update_tracked_category, update_tracked_metadata
+from bot.storage import get_tracked_files, remove_tracked_files, update_tracked_category, update_tracked_metadata, merge_tracked_items
 from server.library_template import LIBRARY_HTML
 import urllib.parse
 import config
@@ -829,6 +829,7 @@ def build_api_media_payload() -> dict:
     """Ultra-fast payload generator leveraging stored metadata and memoization to avoid redundant parsing."""
     global _parsed_filename_cache
     records = get_tracked_files()
+    custom_merges = load_custom_merges()
     items = []
 
     for r in records:
@@ -968,9 +969,10 @@ def build_api_media_payload() -> dict:
 
             # Auto-heal false TV series from older parser (e.g. Return of Beyonce 1, Iron Man 2)
             if parsed.get("is_series"):
-                has_explicit_ep = bool(re.search(r"\b(?:s\d{1,2}|e\d{1,3}|ep|episode|s\d{1,2}e\d{1,3})\b", fn, re.IGNORECASE))
-                has_zero_pad = bool(re.search(r"[\s\.\-_]0\d{1,2}\b", fn))
-                if not has_explicit_ep and not has_zero_pad:
+                has_explicit_ep = bool(re.search(r"\b(?:s\d{1,2}|e\d{1,4}|ep|episode|s\d{1,2}e\d{1,4})\b", fn, re.IGNORECASE))
+                has_zero_pad = bool(re.search(r"[\s\.\-_]0\d{1,3}\b", fn))
+                is_legacy_sequel_fp = bool(re.search(r"\b(beyonce|iron[\s\._\-]*man)\b", lower_fn))
+                if not has_explicit_ep and not has_zero_pad and is_legacy_sequel_fp:
                     fresh_p = parse_filename(fn)
                     if not fresh_p.get("is_series"):
                         parsed["is_series"] = False
@@ -980,8 +982,9 @@ def build_api_media_payload() -> dict:
                         parsed["category"] = fresh_p.get("category") or ("african" if "beyonce" in lower_fn else "movies")
 
             title_clean = str(parsed.get("title") or fn or "Unknown")
+            title_clean = re.sub(r"\s+a[\s\.]*k[\s\.]*a[\s\.]+.*$", "", title_clean, flags=re.IGNORECASE).strip()
             if parsed.get("is_series"):
-                title_clean = re.sub(r"[™®©]", "", title_clean).strip()
+                title_clean = re.sub(r"[๏⌯™®©]", "", title_clean).strip()
                 title_clean = re.sub(r"^(?:[sS]\d{1,2}|[sS]eason\s*\d{1,2})\s+", "", title_clean).strip()
                 title_clean = re.sub(r"^(?:tv\s+)?series\s+(?!of\s+unfortunate\b)", "", title_clean, flags=re.IGNORECASE).strip()
                 title_clean = re.sub(r"\s+(?:[sS]\d{1,2}|[sS]eason\s*\d{1,2})$", "", title_clean).strip()
@@ -989,8 +992,10 @@ def build_api_media_payload() -> dict:
                 title_clean = re.sub(r"[\s\.\-_]+(?:the\s+)?(?:end|finale|final)$", "", title_clean, flags=re.IGNORECASE).strip()
                 title_clean = re.sub(r"\b(?:2160p|1440p|1080p|720p|576p|540p|480p|360p|240p|264|265|x264|x265|h264|h265)\b", "", title_clean, flags=re.IGNORECASE).strip()
                 title_clean = re.sub(r"[\s\-_]+(?:telegram(?:\s+[a-z])?|fi|fil|film|filmh|filmho|filmhou|filmhous|d)$", "", title_clean, flags=re.IGNORECASE).strip()
+                title_clean = re.sub(r"\b(?:marvel\s+s|marvels)\b", "Marvel's", title_clean, flags=re.IGNORECASE)
                 title_clean = re.sub(r"\s+", " ", title_clean).strip(" -_.#[]")
-                norm_lower = title_clean.lower()
+                norm_lower = re.sub(r"['’`]", "", title_clean.lower()).replace("&", "and")
+                norm_lower = re.sub(r"\s+", " ", norm_lower).strip()
                 if norm_lower.startswith("flex cop") or norm_lower.startswith("flex x cop") or norm_lower.startswith("flexxcop"):
                     title_clean = "Flex X Cop"
                     parsed["title"] = "Flex X Cop"
@@ -1002,6 +1007,60 @@ def build_api_media_payload() -> dict:
                     parsed["title"] = "Arcane"
                     if not parsed.get("tmdb_id"):
                         parsed["tmdb_id"] = 94605
+                elif "ossan newbie adventurer" in norm_lower:
+                    title_clean = "The Ossan Newbie Adventurer"
+                    parsed["title"] = "The Ossan Newbie Adventurer"
+                elif "undefeated bahamut" in norm_lower:
+                    title_clean = "Undefeated Bahamut Chronicle"
+                    parsed["title"] = "Undefeated Bahamut Chronicle"
+                elif "knights of the apocalypse" in norm_lower:
+                    title_clean = "Four Knights of the Apocalypse"
+                    parsed["title"] = "Four Knights of the Apocalypse"
+                elif "let this grieving soul retire" in norm_lower:
+                    title_clean = "Let This Grieving Soul Retire"
+                    parsed["title"] = "Let This Grieving Soul Retire"
+                elif norm_lower in ("gods game", "gods games we play"):
+                    title_clean = "Gods' Games We Play"
+                    parsed["title"] = "Gods' Games We Play"
+                elif norm_lower.startswith("irregular at magic"):
+                    title_clean = "The Irregular at Magic High School"
+                    parsed["title"] = "The Irregular at Magic High School"
+                elif norm_lower.startswith("fog hill of five"):
+                    title_clean = "Fog Hill of Five Elements"
+                    parsed["title"] = "Fog Hill of Five Elements"
+                elif "marvel disk wars" in norm_lower:
+                    title_clean = "Marvel Disk Wars: The Avengers"
+                    parsed["title"] = "Marvel Disk Wars: The Avengers"
+                elif "agents of s h i e l" in norm_lower or "agent of shield" in norm_lower:
+                    title_clean = "Marvel's Agents of S.H.I.E.L.D.: Slingshot" if "slingshot" in norm_lower else "Marvel's Agents of S.H.I.E.L.D."
+                    parsed["title"] = title_clean
+                elif "moon girl and devil dinosaur" in norm_lower:
+                    title_clean = "Marvel's Moon Girl and Devil Dinosaur"
+                    parsed["title"] = title_clean
+                elif "avengers earths mightiest heroes" in norm_lower:
+                    title_clean = "The Avengers: Earth's Mightiest Heroes"
+                    parsed["title"] = title_clean
+                elif "avengers assemble" in norm_lower:
+                    title_clean = "Marvel's Avengers Assemble"
+                    parsed["title"] = title_clean
+                elif "jessica jones" in norm_lower:
+                    title_clean = "Marvel's Jessica Jones"
+                    parsed["title"] = title_clean
+                elif "runaways" in norm_lower:
+                    title_clean = "Marvel's Runaways"
+                    parsed["title"] = title_clean
+                elif "guardians of the galaxy" in norm_lower:
+                    title_clean = "Marvel's Guardians of the Galaxy"
+                    parsed["title"] = title_clean
+                elif norm_lower in ("marvels spider man", "marvels spider-man"):
+                    title_clean = "Marvel's Spider-Man"
+                    parsed["title"] = title_clean
+                elif "x men 97" in norm_lower:
+                    title_clean = "X-Men '97"
+                    parsed["title"] = title_clean
+                elif "silver surfer" in norm_lower and "animated" in norm_lower:
+                    title_clean = "Silver Surfer: The Animated Series"
+                    parsed["title"] = title_clean
                 elif "one of us is lying" in norm_lower or "on of us is lying" in norm_lower or norm_lower == "of us is lying":
                     title_clean = "One of Us Is Lying"
                     parsed["title"] = "One of Us Is Lying"
@@ -1054,6 +1113,21 @@ def build_api_media_payload() -> dict:
                     parsed["title"] = "Mother Of The Brides"
                 else:
                     parsed["title"] = title_clean
+
+            # Apply persistent user-defined custom folder merge rules if any
+            if custom_merges:
+                mk = normalize_merge_key(title_clean)
+                if mk in custom_merges:
+                    mrule = custom_merges[mk]
+                    if mrule.get("title"):
+                        title_clean = mrule["title"]
+                        parsed["title"] = title_clean
+                    if "is_series" in mrule:
+                        parsed["is_series"] = bool(mrule["is_series"])
+                    if mrule.get("year") and not parsed.get("year"):
+                        parsed["year"] = mrule["year"]
+                    if mrule.get("category") and not r.get("category"):
+                        parsed["category"] = mrule["category"]
 
             if parsed.get("is_series"):
                 s_num = safe_int(parsed.get("season"), default=1)
@@ -1297,6 +1371,49 @@ async def handle_api_edit(request: web.Request) -> web.Response:
         return web.json_response({"success": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
 
 
+async def handle_api_merge(request: web.Request) -> web.Response:
+    """Merges multiple split anime/series/movie items into one unified folder/card (ADMIN ONLY)."""
+    if not check_rate_limit(request, max_requests=30, window_sec=60):
+        return web.json_response({"success": False, "error": "Rate limit exceeded."}, status=429, headers={"Access-Control-Allow-Origin": "*"})
+
+    if not verify_admin_access(request):
+        return web.json_response({"success": False, "error": "Unauthorized: FilmHouse Admin authorization required."}, status=401, headers={"Access-Control-Allow-Origin": "*"})
+
+    try:
+        data = await request.json()
+        raw_mids = data.get("message_ids") or []
+        target_title = str(data.get("target_title") or "").strip()
+        is_series = bool(data.get("is_series", True))
+        category = (data.get("category") or "").strip().lower() or None
+        year = safe_int(data.get("year"))
+        remember_rule = bool(data.get("remember_rule", True))
+
+        if not raw_mids or not target_title:
+            return web.json_response(
+                {"success": False, "error": "Both message_ids and target_title are required."},
+                status=400,
+                headers={"Access-Control-Allow-Origin": "*"},
+            )
+
+        mids = [int(m) for m in raw_mids if m is not None]
+        updated = merge_tracked_items(
+            mids,
+            target_title=target_title,
+            is_series=is_series,
+            category=category,
+            year=year,
+            remember_rule=remember_rule,
+        )
+        invalidate_media_cache()
+        return web.json_response(
+            {"success": True, "updated_count": updated, "target_title": target_title},
+            headers={"Access-Control-Allow-Origin": "*"},
+        )
+    except Exception as e:
+        logger.error(f"Error in handle_api_merge: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
+
+
 async def handle_api_audit(request: web.Request) -> web.Response:
     """Returns cached series completeness audit data (ADMIN ONLY)."""
     if not check_rate_limit(request, max_requests=120, window_sec=60):
@@ -1389,6 +1506,8 @@ def create_stream_app() -> web.Application:
     app.router.add_route("OPTIONS", "/api/media/category", handle_cors_options)
     app.router.add_post("/api/media/edit", handle_api_edit)
     app.router.add_route("OPTIONS", "/api/media/edit", handle_cors_options)
+    app.router.add_post("/api/media/merge", handle_api_merge)
+    app.router.add_route("OPTIONS", "/api/media/merge", handle_cors_options)
     
     app.router.add_get("/watch/{token}", handle_watch)
     

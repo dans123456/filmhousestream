@@ -416,27 +416,33 @@ async def flush_batch(client: Client, user_id: int):
             # Extract distinct episode numbers per item (excluding year, quality, audio/codec tags, and file sizes)
             item_ep_nums = []
             for it in items:
-                clean_fn = re.sub(r"\b(19\d{2}|20\d{2})\b", "", it["file_name"])
+                clean_fn = re.sub(r"[\[\]\(\)_\.]", " ", it["file_name"])
+                clean_fn = re.sub(r"\b(19\d{2}|20\d{2})\b", "", clean_fn)
                 clean_fn = re.sub(r"\b(2160p|1440p|1080p|720p|576p|540p|480p|360p|4k)\b", "", clean_fn, flags=re.IGNORECASE)
                 clean_fn = re.sub(r"\b(ddp?5[\.\s]?1|dd2[\.\s]?0|5\.1|2\.0|10bit|8bit|6ch|2ch|x264|x265|h264|h265)\b", "", clean_fn, flags=re.IGNORECASE)
                 clean_fn = re.sub(r"\b\d+(?:\.\d+)?\s*(?:mb|gb)\b", "", clean_fn, flags=re.IGNORECASE)
-                m = re.search(r"\b(?:ep|episode|e)\s*0?(\d{1,3})\b", clean_fn, re.IGNORECASE)
+                m = re.search(r"\b(?:ep|episode|e)\s*0?(\d{1,4})\b", clean_fn, re.IGNORECASE)
                 if not m:
-                    m = re.search(r"\b0?(\d{1,3})\b", clean_fn)
+                    for num_m in re.finditer(r"\b0?(\d{1,4})\b", clean_fn):
+                        val = int(num_m.group(1))
+                        if not (1920 <= val <= 2035):
+                            m = num_m
+                            break
                 item_ep_nums.append(int(m.group(1)) if m else None)
             distinct_ep_nums = {n for n in item_ep_nums if n is not None}
 
-            # If all files share the same movie title AND (have different qualities or a release year):
-            # IT IS 100% A MULTI-QUALITY MOVIE BATCH (e.g. Elf 2003 in 720p and 1080p)!
-            if same_title and (has_qual_diff or has_year):
+            # Multi-quality movie ONLY if <= 4 files, distinct qualities, and NOT a sequence of episode numbers!
+            if same_title and len(items) <= 4 and has_qual_diff and len(distinct_ep_nums) <= 1:
                 all_movies = True
-            elif same_title and len(distinct_ep_nums) >= 2 and len(distinct_ep_nums) == len(items):
-                # Genuine TV series with distinct episode sequence (preserve each item's exact episode number)
+            elif same_title and has_year and len(distinct_ep_nums) <= 1:
+                all_movies = True
+            elif same_title and len(distinct_ep_nums) >= 2 and len(distinct_ep_nums) >= len(items) - 1:
+                # Genuine TV / Anime series with distinct episode sequence (even across mixed 720p/1080p qualities!)
                 logger.info(f"Auto-Promoting multi-file batch ({len(items)} files) to Series Batch (Distinct episodic numbers detected: {sorted(distinct_ep_nums)})")
-                for it, ep_num in zip(items, item_ep_nums):
+                for idx_ep, (it, ep_num) in enumerate(zip(items, item_ep_nums), 1):
                     it["parsed"]["is_series"] = True
                     it["parsed"]["season"] = it["parsed"].get("season") or 1
-                    it["parsed"]["episode"] = ep_num
+                    it["parsed"]["episode"] = ep_num if ep_num is not None else idx_ep
                 all_movies = False
 
         # Split mixed batches cleanly so movies never get sent through series formatting
@@ -484,6 +490,7 @@ async def process_movies_batch(client: Client, user_id: int, items: list, status
     quality_ranks = {"4k": 4, "2160p": 4, "1080p": 3, "720p": 2, "480p": 1, "360p": 0}
     all_processed_movies = []
     processed_count = 0
+    batch_created_mids: set[int] = set()
 
     for (movie_title, year), m_items in movie_groups.items():
         # Sort highest quality first (4K -> 1080p -> 720p)
@@ -505,6 +512,9 @@ async def process_movies_batch(client: Client, user_id: int, items: list, status
             processed_count += 1
             new_size_bytes = (raw_msg.video.file_size if raw_msg.video else (raw_msg.document.file_size if raw_msg.document else 0))
             dup_info = find_library_duplicate(it["parsed"], it["file_name"], new_size_bytes)
+            # Never overwrite or skip a file created during this exact batch
+            if dup_info and dup_info.get("old_message_id") in batch_created_mids:
+                dup_info = None
 
             try:
                 if dup_info and not dup_info.get("is_upgrade"):
@@ -533,6 +543,7 @@ async def process_movies_batch(client: Client, user_id: int, items: list, status
                         status_msg=status_msg,
                         ep_info=f"movie {it['file_name']}"
                     )
+                    batch_created_mids.add(forwarded.id)
                     replace_tracked_file(
                         old_mid,
                         forwarded.id,
@@ -548,6 +559,7 @@ async def process_movies_batch(client: Client, user_id: int, items: list, status
                         status_msg=status_msg,
                         ep_info=f"movie {it['file_name']}"
                     )
+                    batch_created_mids.add(forwarded.id)
                     record_indexed_file(
                         forwarded.id,
                         it["file_name"],
@@ -697,7 +709,7 @@ def harmonize_batch_missing_episodes(items: list):
         for it in show_items:
             fn = (it.get("file_name") or "").lower()
             s = it["parsed"].get("season")
-            has_real_tag = bool(re.search(r"\b[sS]\d{1,2}[eE]\d{1,3}\b", fn) or re.search(r"\b\d{1,2}[xX]\d{1,3}\b", fn))
+            has_real_tag = bool(re.search(r"\b[sS]\d{1,2}[eE]\d{1,4}\b", fn) or re.search(r"\b\d{1,2}[xX]\d{1,4}\b", fn))
             if has_real_tag and s and s > 0:
                 continue
             is_explicit_s0 = bool(re.search(r"\bs0+(?:[^\d]|$)", fn))
@@ -722,7 +734,7 @@ def harmonize_batch_missing_episodes(items: list):
             p["is_series"] = True
             p["season"] = dominant_season
             p["episode"] = next_ep
-            p["category"] = "series"
+            p["category"] = p.get("category") or "series"
 
             # Update golden filename
             orig_fn = amb.get("file_name") or ""
@@ -923,7 +935,7 @@ async def process_series_batch(client: Client, user_id: int, items: list, status
             [InlineKeyboardButton("📱 View Library (Admin WebApp)", web_app=WebAppInfo(url=f"{config.SERVER_URL}/library?admin_key={config.ADMIN_SECRET}"))],
         ]
 
-        chunk_size = 50
+        chunk_size = 35
         total_chunks = (len(processed_links) + chunk_size - 1) // chunk_size
 
         for c_idx in range(total_chunks):
