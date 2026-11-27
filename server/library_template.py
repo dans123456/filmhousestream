@@ -1123,6 +1123,92 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       background: rgba(99, 102, 241, 0.35);
       color: #fff;
     }
+    .audit-banner-alert {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 14px;
+      margin-bottom: 12px;
+      border-radius: 12px;
+      background: linear-gradient(90deg, rgba(239, 68, 68, 0.16), rgba(245, 158, 11, 0.12));
+      border: 1px solid rgba(239, 68, 68, 0.38);
+      color: #fca5a5;
+      font-size: 0.8rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .audit-banner-alert:hover {
+      background: linear-gradient(90deg, rgba(239, 68, 68, 0.24), rgba(245, 158, 11, 0.18));
+      border-color: rgba(239, 68, 68, 0.6);
+    }
+    .audit-banner-progress {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 10px 14px;
+      margin-bottom: 12px;
+      border-radius: 12px;
+      background: rgba(99, 102, 241, 0.14);
+      border: 1px solid rgba(99, 102, 241, 0.38);
+      color: #e0e7ff;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .audit-progress-track {
+      width: 100%;
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      overflow: hidden;
+    }
+    .audit-progress-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #6366f1, #f59e0b);
+      transition: width 0.3s ease;
+    }
+    .incomplete-filters-bar {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 10px 12px;
+      background: rgba(18, 20, 29, 0.85);
+      border: 1px solid rgba(239, 68, 68, 0.22);
+      border-radius: 12px;
+      margin-bottom: 6px;
+    }
+    .inc-sub-row {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .inc-sub-row::-webkit-scrollbar { display: none; }
+    .inc-pill {
+      flex: 0 0 auto;
+      padding: 5px 10px;
+      border-radius: 8px;
+      font-size: 0.73rem;
+      font-weight: 700;
+      background: rgba(255, 255, 255, 0.05);
+      color: #94a3b8;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s;
+    }
+    .inc-pill.active {
+      background: rgba(239, 68, 68, 0.22);
+      color: #fca5a5;
+      border-color: rgba(239, 68, 68, 0.55);
+    }
+    .inc-pill.cat-active {
+      background: rgba(99, 102, 241, 0.25);
+      color: #c7d2fe;
+      border-color: rgba(99, 102, 241, 0.55);
+    }
     @media (max-width: 520px) {
       .bulk-bar {
         flex-wrap: wrap;
@@ -1458,6 +1544,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
 
     <div class="filter-tabs" id="categoryTabs">
       <button class="tab active" data-filter="all">🌐 All <span class="tab-count" id="count-all">0</span></button>
+      <button class="tab" data-filter="incomplete" style="border-color:rgba(239,68,68,0.35); color:#fca5a5;" title="Series with missing episodes or incomplete seasons">⚠️ Incomplete <span class="tab-count" id="count-incomplete" style="background:rgba(239,68,68,0.25); color:#fca5a5;">0</span></button>
       <button class="tab" data-filter="movies">🎬 Movies <span class="tab-count" id="count-movies">0</span></button>
       <button class="tab" data-filter="series">📺 Series <span class="tab-count" id="count-series">0</span></button>
       <button class="tab" data-filter="anime">⚔️ Anime <span class="tab-count" id="count-anime">0</span></button>
@@ -1465,8 +1552,9 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       <button class="tab" data-filter="african">🌍 African <span class="tab-count" id="count-african">0</span></button>
       <button class="tab" data-filter="bollywood">👳 Bollywood <span class="tab-count" id="count-bollywood">0</span></button>
       <button class="tab" data-filter="cartoons">🎨 Cartoons <span class="tab-count" id="count-cartoons">0</span></button>
-      <button class="tab" data-filter="incomplete" style="border-color:rgba(239,68,68,0.35); color:#fca5a5;" title="Series with missing episodes or incomplete seasons">⚠️ Incomplete <span class="tab-count" id="count-incomplete" style="background:rgba(239,68,68,0.25); color:#fca5a5;">0</span></button>
     </div>
+
+    <div id="auditLiveBanner"></div>
 
     <div id="mediaGrid" class="media-grid">
       <div id="loadingPlaceholder" class="empty-state" style="padding: 50px 20px;">
@@ -1666,6 +1754,8 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
 
     let allMedia = [];
     let currentFilter = "all";
+    let incompleteSubFilter = "all";
+    let incompleteCatFilter = "all";
     let isSelectMode = false;
     let selectedIds = new Set();
 
@@ -1879,6 +1969,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
             document.getElementById('statsBadge').textContent = `${allMedia.length} Titles`;
             updateCategoryCounts();
             renderMedia();
+            fetchAuditData();
             return;
           }
         }
@@ -1966,12 +2057,14 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         if (currentFilter === "incomplete" || currentFilter === "single_ep") {
           if (!item.is_series || !item.series_title) return false;
           const k = getCanonicalSeriesKey(item.series_title);
-          if (window.completedSeasons && window.completedSeasons.has(k)) return false;
-          const auditInfo = findAuditInfo(k, item.series_title);
+          const auditInfo = getActiveAuditInfo(k, item.series_title);
           if (!auditInfo) return false;
-          if (auditInfo.seasons_summary && Array.isArray(auditInfo.seasons_summary)) {
-            const active = auditInfo.seasons_summary.filter(s => !(window.completedSeasons && window.completedSeasons.has(`${k}__s${s.season}`)));
-            if (active.length === 0) return false;
+          const itemCat = item.category || auditInfo.category || 'series';
+          if (incompleteCatFilter !== 'all' && itemCat !== incompleteCatFilter) return false;
+          if (incompleteSubFilter !== 'all') {
+            const sumTypes = (auditInfo.seasons_summary || []).map(s => s.issue_type || 'tail');
+            const topTypes = Array.isArray(auditInfo.issue_types) ? auditInfo.issue_types : [];
+            if (!sumTypes.includes(incompleteSubFilter) && !topTypes.includes(incompleteSubFilter)) return false;
           }
           return true;
         }
@@ -2190,8 +2283,8 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       // Universal article stripper: "the_", "a_", "an_" so titles with/without articles unite automatically!
       norm = norm.replace(/^(the|a|an)_+/, '');
 
-      // Strip leading and trailing End / Finale markers (e.g. "end_hotel_del_luna" -> "hotel_del_luna", "mr_queen_end" -> "mr_queen")
-      norm = norm.replace(/^(the_)?(end|finale|final)_+/, '');
+      // Strip leading and trailing End / Finale markers (never strip "End of ...")
+      norm = norm.replace(/^(the_)?(end|finale|final)_(?!of_)/, '');
       norm = norm.replace(/_+(the_)?(end|finale|final)$/, '');
 
       // Proactively strip trailing part, season, volume, year, resolution, codec, and release descriptors
@@ -2202,7 +2295,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       norm = norm.replace(/_[0-9]$/, '');
 
       // Strip A.K.A. suffix and any residual resolution/descriptors
-      norm = norm.replace(/_a_k_a_.*$/, '');
+      norm = norm.replace(/_a_k_a_.*$/, '').replace(/^_+|_+$/g, '');
 
       // Known Franchise Aliases
       if (norm === 'forever' || norm.startsWith('forever_')) return 'forever';
@@ -2218,9 +2311,10 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       if (norm.includes('agents_of_s_h_i_e_l') || norm.includes('agent_of_shield')) return norm.includes('slingshot') ? 'marvels_agents_of_shield_slingshot' : 'marvels_agents_of_shield';
       if (norm.includes('moon_girl_and_devil_dinosaur')) return 'marvels_moon_girl_and_devil_dinosaur';
       if (norm.includes('avengers_earths_mightiest_heroes')) return 'avengers_earths_mightiest_heroes';
-      if (norm.includes('avengers_assemble')) return 'marvels_avengers_assemble';
+      if (norm.includes('avengers_assemble') || norm.includes('avengers_ultron_revolution') || norm.includes('avengers_secret_wars')) return 'marvels_avengers_assemble';
       if (norm.includes('x_men_97')) return 'x_men_97';
       if (norm.includes('silver_surfer') && norm.includes('animated')) return 'silver_surfer_the_animated_series';
+      if (norm.includes('end_of_the_fucking_world') || norm.includes('end_of_the_f_ing_world') || norm.startsWith('end_of_the_f')) return 'the_end_of_the_f_ing_world';
       if (norm.includes('legend_of_korra')) return 'the_legend_of_korra';
       if (norm.includes('one_of_us_is_lying') || norm.includes('on_of_us_is_lying') || norm === 'of_us_is_lying') return 'one_of_us_is_lying';
       if (norm.startsWith('wandavision')) return 'wandavision';
@@ -2323,9 +2417,10 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       if (col.includes('agentsofshiel') || col.includes('agentofshield')) return col.includes('slingshot') ? "Marvel's Agents of S.H.I.E.L.D.: Slingshot" : "Marvel's Agents of S.H.I.E.L.D.";
       if (col.includes('moongirlanddevildinosaur')) return "Marvel's Moon Girl and Devil Dinosaur";
       if (col.includes('avengersearthsmightiestheroes')) return "The Avengers: Earth's Mightiest Heroes";
-      if (col.includes('avengersassemble')) return "Marvel's Avengers Assemble";
+      if (col.includes('avengersassemble') || col.includes('avengersultronrevolution') || col.includes('avengerssecretwars')) return "Marvel's Avengers Assemble";
       if (col.includes('xmen97')) return "X-Men '97";
       if (col.includes('silversurfer') && col.includes('animated')) return 'Silver Surfer: The Animated Series';
+      if (col.includes('endofthefuckingworld') || col.includes('endofthefingworld') || col === 'ofthefkingworld' || col === 'ofthefingworld') return 'The End of the F***ing World';
       if (col.startsWith('maxtonhall')) return 'Maxton Hall';
       if (col === 'motherofthebride' || col === 'motherofthebrides' || col === 'motherofbrides') return 'Mother Of The Brides';
       if (col.includes('oneofusislying') || col.includes('onofusislying') || col === 'ofusislying') return 'One of Us Is Lying';
@@ -2529,6 +2624,79 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       }
     }
 
+    function switchToIncompleteTab() {
+      currentFilter = 'incomplete';
+      document.querySelectorAll('.tab').forEach(t => {
+        const isTarget = (t.dataset && t.dataset.filter === 'incomplete');
+        t.classList.toggle('active', isTarget);
+        if (isTarget) {
+          t.scrollIntoView?.({ behavior: 'smooth', inline: 'nearest', block: 'nearest' });
+        }
+      });
+      renderAuditLiveBanner();
+      renderMedia();
+    }
+
+    function setIncompleteSubFilter(val) {
+      incompleteSubFilter = val || 'all';
+      renderMedia();
+    }
+
+    function setIncompleteCatFilter(val) {
+      incompleteCatFilter = val || 'all';
+      renderMedia();
+    }
+
+    function getLiveIncompleteCount() {
+      if (!window.auditData || !Array.isArray(window.auditData.incomplete_series)) {
+        return 0;
+      }
+      const seenKeys = new Set();
+      allMedia.forEach(m => {
+        if (!m.is_series || !m.series_title) return;
+        const k = getCanonicalSeriesKey(m.series_title);
+        if (!k || seenKeys.has(k)) return;
+        if (getActiveAuditInfo(k, m.series_title)) {
+          seenKeys.add(k);
+        }
+      });
+      return seenKeys.size;
+    }
+
+    function renderAuditLiveBanner() {
+      const bannerEl = document.getElementById('auditLiveBanner');
+      if (!bannerEl) return;
+      const status = window.auditData && window.auditData.status;
+      if (status && status.is_running) {
+        const cur = status.current_index || 0;
+        const tot = status.total_count || 0;
+        const pct = tot > 0 ? Math.min(100, Math.round((cur / tot) * 100)) : 5;
+        const t = status.current_title ? ` — ${escapeHtml(status.current_title.slice(0, 28))}` : '';
+        bannerEl.innerHTML = `
+          <div class="audit-banner-progress">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+              <span>📡 Scanning Series with TMDB: <b>${cur} / ${tot}</b>${t}</span>
+              <span style="color:#fbbf24;">${pct}%</span>
+            </div>
+            <div class="audit-progress-track">
+              <div class="audit-progress-fill" style="width:${pct}%;"></div>
+            </div>
+          </div>`;
+        return;
+      }
+
+      const incCount = getLiveIncompleteCount();
+      if (currentFilter === 'all' && incCount > 0) {
+        bannerEl.innerHTML = `
+          <div class="audit-banner-alert" onclick="switchToIncompleteTab()">
+            <span>⚠️ ${incCount} Incomplete Series need attention (missing episodes or gaps)</span>
+            <span style="color:#fff; white-space:nowrap; background:rgba(239,68,68,0.35); padding:3px 9px; border-radius:8px;">View All →</span>
+          </div>`;
+      } else {
+        bannerEl.innerHTML = '';
+      }
+    }
+
     async function fetchAuditData() {
       try {
         const tgInit = window.Telegram?.WebApp?.initData || '';
@@ -2547,6 +2715,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
             window.auditData = d.audit;
             syncCompletedSeasons();
             updateCategoryCounts();
+            renderAuditLiveBanner();
             renderMedia();
           }
         }
@@ -2573,6 +2742,9 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       };
 
       setButtonSyncing("Starting...");
+      if (!window.auditData) window.auditData = {};
+      window.auditData.status = { is_running: true, current_index: 0, total_count: 0, current_title: 'Starting...' };
+      renderAuditLiveBanner();
       showToast("🚀 TMDB Background Audit Started! Scanning library series against TMDB...");
 
       try {
@@ -2619,20 +2791,22 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
             if (d.success && d.audit) {
               window.auditData = d.audit;
               const status = d.audit.status;
+              renderAuditLiveBanner();
               if (status && status.is_running) {
                 const current = status.current_index || 0;
                 const total = status.total_count || 0;
                 const title = status.current_title ? ` (${status.current_title.slice(0, 14)}...)` : '';
                 setButtonSyncing(`${current}/${total}${title}`);
               } else {
-                // Scan complete!
+                // Scan complete! Switch directly to Incomplete tab so user sees results immediately
                 clearInterval(auditPollInterval);
                 auditPollInterval = null;
                 resetButton();
+                syncCompletedSeasons();
                 updateCategoryCounts();
-                renderMedia();
-                const count = d.audit.incomplete_count || 0;
-                showToast(`✅ TMDB Audit Complete! ${count} incomplete series found with missing episodes.`);
+                switchToIncompleteTab();
+                const count = getLiveIncompleteCount();
+                showToast(`✅ TMDB Audit Complete! ${count} incomplete series found.`);
                 return;
               }
             }
@@ -2676,16 +2850,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
 
       let incompleteCount = 0;
       if (window.auditData && Array.isArray(window.auditData.incomplete_series)) {
-        const activeIncompletes = window.auditData.incomplete_series.filter(s => {
-          const k = s.canonical_key;
-          if (window.completedSeasons && window.completedSeasons.has(k)) return false;
-          if (s.seasons_summary && Array.isArray(s.seasons_summary)) {
-            const activeSeasons = s.seasons_summary.filter(sn => !window.completedSeasons.has(`${k}__s${sn.season}`));
-            if (activeSeasons.length === 0) return false;
-          }
-          return true;
-        });
-        incompleteCount = activeIncompletes.length;
+        incompleteCount = getLiveIncompleteCount();
       } else {
         seriesEpCounts.forEach((c) => {
           if (c === 1) incompleteCount++;
@@ -2693,6 +2858,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       }
       const incompEl = document.getElementById('count-incomplete') || document.getElementById('count-single_ep');
       if (incompEl) incompEl.textContent = incompleteCount;
+      renderAuditLiveBanner();
     }
 
     const collapsedSections = new Set();
@@ -2935,6 +3101,28 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       return null;
     }
 
+    function getActiveAuditInfo(canonicalKey, title) {
+      if (window.completedSeasons && window.completedSeasons.has(canonicalKey)) return null;
+      const auditInfo = findAuditInfo(canonicalKey, title);
+      if (!auditInfo) return null;
+      const auditKey = auditInfo.canonical_key || canonicalKey;
+      if (window.completedSeasons && window.completedSeasons.has(auditKey)) return null;
+
+      // IMPORTANT: Only filter by seasons_summary when seasons_summary actually contains entries.
+      // Never hide a series whose seasons_summary is empty!
+      if (Array.isArray(auditInfo.seasons_summary) && auditInfo.seasons_summary.length > 0) {
+        const active = auditInfo.seasons_summary.filter(s => !(
+          window.completedSeasons && (
+            window.completedSeasons.has(`${canonicalKey}__s${s.season}`) ||
+            window.completedSeasons.has(`${auditKey}__s${s.season}`)
+          )
+        ));
+        if (active.length === 0) return null;
+        return { ...auditInfo, seasons_summary: active };
+      }
+      return auditInfo;
+    }
+
     function renderItemListHtml(items, query, catId = '') {
       // 1. Group series using smart canonical keys with O(1) Map indexing
       const seriesGroupMap = new Map();
@@ -3023,7 +3211,8 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
       const sortedSeries = seriesGroupList.sort((a, b) => a.title.localeCompare(b.title));
       const movieGroupList = Object.values(movieGroups);
       const totalUnits = sortedSeries.length + movieGroupList.length;
-      const maxDisplay = (!query && catId) ? (sectionPageLimits[catId] || 35) : 999999;
+      const defaultLimit = (catId === 'incomplete') ? 150 : 35;
+      const maxDisplay = (!query && catId) ? (sectionPageLimits[catId] || defaultLimit) : 999999;
 
       let subHtml = '';
       let renderedCount = 0;
@@ -3037,18 +3226,8 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         const isExpanded = isFolderExpanded(group.canonicalKey);
         const totalEpCount = group.allEpisodes.length;
         const catObj = getCategoryObj(group.category);
-        const isSeriesComplete = Boolean(window.completedSeasons && window.completedSeasons.has(group.canonicalKey));
-        let auditInfo = isSeriesComplete ? null : findAuditInfo(group.canonicalKey, group.title);
-
-        if (auditInfo && auditInfo.seasons_summary) {
-          const activeIncompletes = auditInfo.seasons_summary.filter(s => {
-            const sKey = `${group.canonicalKey}__s${s.season}`;
-            return !(window.completedSeasons && window.completedSeasons.has(sKey));
-          });
-          if (activeIncompletes.length === 0) {
-            auditInfo = null; // All seasons were verified complete!
-          }
-        }
+        const auditInfo = getActiveAuditInfo(group.canonicalKey, group.title);
+        const isSeriesComplete = !auditInfo;
 
         const folderMids = group.allEpisodes.map(ep => ep.message_id).filter(Boolean);
         window.seriesMetaMap[group.canonicalKey] = {
@@ -3394,34 +3573,57 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         });
       } else if (currentFilter === 'incomplete' || currentFilter === 'single_ep') {
         // Incomplete Series & TMDB Audit Filter
-        const seriesCountMap = new Map();
-        allMedia.forEach(item => {
-          if (item.is_series && item.series_title) {
-            const k = getCanonicalSeriesKey(item.series_title);
-            seriesCountMap.set(k, (seriesCountMap.get(k) || 0) + 1);
-          }
-        });
+        const seriesMetaByKey = new Map();
+        const subCounts = { all: 0, gap: 0, tail: 0, missing_season: 0 };
+        const catCounts = { all: 0, series: 0, anime: 0, kdrama: 0, cartoons: 0, african: 0, bollywood: 0 };
 
-        const hasAuditData = Boolean(window.auditData && Array.isArray(window.auditData.incomplete_series));
-        let auditIncompleteKeys = new Set();
-        if (hasAuditData) {
-          window.auditData.incomplete_series.forEach(s => auditIncompleteKeys.add(s.canonical_key));
-        }
-
-        const incompleteItems = filtered.filter(item => {
+        const baseIncompleteItems = filtered.filter(item => {
           if (!item.is_series || !item.series_title) return false;
           const k = getCanonicalSeriesKey(item.series_title);
-          if (window.completedSeasons && window.completedSeasons.has(k)) return false;
-          const auditInfo = findAuditInfo(k, item.series_title);
-          if (auditInfo) {
-            if (auditInfo.seasons_summary && Array.isArray(auditInfo.seasons_summary)) {
-              const active = auditInfo.seasons_summary.filter(s => !(window.completedSeasons && window.completedSeasons.has(`${k}__s${s.season}`)));
-              if (active.length === 0) return false;
-            }
-            return true;
+          const auditInfo = getActiveAuditInfo(k, item.series_title);
+          if (!auditInfo) return false;
+
+          if (!seriesMetaByKey.has(k)) {
+            const itemCat = item.category || auditInfo.category || 'series';
+            const sumTypes = (auditInfo.seasons_summary || []).map(s => s.issue_type || 'tail');
+            const topTypes = Array.isArray(auditInfo.issue_types) ? auditInfo.issue_types : [];
+            const issueSet = new Set([...sumTypes, ...topTypes]);
+            seriesMetaByKey.set(k, { auditInfo, cat: itemCat, issueSet });
+            subCounts.all++;
+            if (issueSet.has('gap')) subCounts.gap++;
+            if (issueSet.has('tail')) subCounts.tail++;
+            if (issueSet.has('missing_season')) subCounts.missing_season++;
+            catCounts.all++;
+            if (catCounts[itemCat] !== undefined) catCounts[itemCat]++;
           }
-          return false;
+          return true;
         });
+
+        const shownSeriesKeys = new Set();
+        const incompleteItems = baseIncompleteItems.filter(item => {
+          const k = getCanonicalSeriesKey(item.series_title);
+          const meta = seriesMetaByKey.get(k);
+          if (!meta) return false;
+          if (incompleteCatFilter !== 'all' && meta.cat !== incompleteCatFilter) return false;
+          if (incompleteSubFilter !== 'all' && !meta.issueSet.has(incompleteSubFilter)) return false;
+          shownSeriesKeys.add(k);
+          return true;
+        });
+
+        const subFilterPills = [
+          { id: 'all', label: `All Issues (${subCounts.all})` },
+          { id: 'gap', label: `🕳️ Mid-Season Gaps (${subCounts.gap})` },
+          { id: 'tail', label: `📉 Missing Finale/Tail (${subCounts.tail})` },
+          { id: 'missing_season', label: `📂 Missing Season (${subCounts.missing_season})` },
+        ];
+        const catFilterPills = [
+          { id: 'all', label: `All Hubs (${catCounts.all})` },
+          { id: 'series', label: `📺 Series (${catCounts.series})` },
+          { id: 'anime', label: `⚔️ Anime (${catCounts.anime})` },
+          { id: 'kdrama', label: `🌸 K-Drama (${catCounts.kdrama})` },
+          { id: 'cartoons', label: `🎨 Cartoons (${catCounts.cartoons})` },
+          { id: 'african', label: `🌍 African (${catCounts.african})` },
+        ];
 
         html += `
         <div class="category-section" id="section-incomplete">
@@ -3429,14 +3631,22 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
             <div class="category-banner-left">
               <span class="category-banner-icon">⚠️</span>
               <span class="category-banner-title" style="color:#fca5a5;">Incomplete Series (TMDB &amp; Gap Audit)</span>
-              <span class="category-banner-count" style="background:rgba(239,68,68,0.25); color:#fca5a5;">${incompleteItems.length} Titles</span>
+              <span class="category-banner-count" style="background:rgba(239,68,68,0.25); color:#fca5a5;">${shownSeriesKeys.size} Series</span>
             </div>
             <button onclick="syncAuditTMDB(event)" class="btn btn-watch" style="padding:6px 14px; font-size:0.75rem; border-radius:10px; margin-right:8px; cursor:pointer;" id="syncTmdbBtn">
               🔄 Sync TMDB
             </button>
           </div>
+          <div class="incomplete-filters-bar">
+            <div class="inc-sub-row">
+              ${subFilterPills.map(p => `<button type="button" class="inc-pill ${incompleteSubFilter === p.id ? 'active' : ''}" onclick="setIncompleteSubFilter('${p.id}')">${p.label}</button>`).join('')}
+            </div>
+            <div class="inc-sub-row">
+              ${catFilterPills.filter(p => p.id === 'all' || catCounts[p.id] > 0).map(p => `<button type="button" class="inc-pill ${incompleteCatFilter === p.id ? 'cat-active' : ''}" onclick="setIncompleteCatFilter('${p.id}')">${p.label}</button>`).join('')}
+            </div>
+          </div>
           <div class="category-section-content">
-            ${incompleteItems.length > 0 ? renderItemListHtml(incompleteItems, query, 'incomplete') : '<div class="empty-state">🎉 Great news! All series in your library have complete seasons and no missing episodes!</div>'}
+            ${incompleteItems.length > 0 ? renderItemListHtml(incompleteItems, query, 'incomplete') : '<div class="empty-state">🎉 No incomplete series match this filter!</div>'}
           </div>
         </div>
         `;
@@ -3487,6 +3697,7 @@ LIBRARY_HTML = r"""<!DOCTYPE html>
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
         currentFilter = tab.dataset.filter;
+        renderAuditLiveBanner();
         renderMedia();
       });
     });

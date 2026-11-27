@@ -868,13 +868,16 @@ def build_api_media_payload() -> dict:
 
             # Auto-Heal Series: Upgrade files with franchise, End/Finale markers, or episode markers to series
             lower_fn = fn.lower()
+            orig_lower = (r.get("original_filename") or "").lower()
+            norm_end_fn = re.sub(r"[\._\-]+", " ", lower_fn)
+            norm_end_orig = re.sub(r"[\._\-]+", " ", orig_lower)
             lower_title = str(parsed.get("title") or "").lower()
-            movie_end_exceptions = ("avengers", "pirates", "dead end", "deep end", "world's end", "weekend", "this is the end", "at world's end")
-            has_end_marker = (lower_fn.startswith("end ") or " end" in lower_fn or lower_title.startswith("end ") or " end" in lower_title) and not any(ex in lower_fn for ex in movie_end_exceptions)
+            movie_end_exceptions = ("avengers", "pirates", "dead end", "deep end", "world's end", "worlds end", "weekend", "this is the end", "at world's end", "end of the")
+            has_end_marker = (lower_fn.startswith("end ") or " end" in lower_fn or lower_title.startswith("end ") or " end" in lower_title) and not any(ex in norm_end_fn or ex in norm_end_orig for ex in movie_end_exceptions)
 
             if has_end_marker:
                 parsed["is_series"] = True
-                cleaned = re.sub(r"^(?:the\s+)?(?:end|finale|final)\s+", "", parsed.get("title") or fn, flags=re.IGNORECASE).strip()
+                cleaned = re.sub(r"^(?:the\s+)?(?:end|finale|final)\s+(?!of\b)", "", parsed.get("title") or fn, flags=re.IGNORECASE).strip()
                 cleaned = re.sub(r"[\s\.\-_]+(?:the\s+)?(?:end|finale|final)$", "", cleaned, flags=re.IGNORECASE).strip()
                 parsed["title"] = cleaned
                 if not parsed.get("episode"):
@@ -1040,8 +1043,11 @@ def build_api_media_payload() -> dict:
                 elif "avengers earths mightiest heroes" in norm_lower:
                     title_clean = "The Avengers: Earth's Mightiest Heroes"
                     parsed["title"] = title_clean
-                elif "avengers assemble" in norm_lower:
+                elif "avengers assemble" in norm_lower or "avengers ultron revolution" in norm_lower or "avengers secret wars" in norm_lower:
                     title_clean = "Marvel's Avengers Assemble"
+                    parsed["title"] = title_clean
+                elif "end of the f" in norm_lower or norm_lower.startswith("of the f"):
+                    title_clean = "The End of the F***ing World"
                     parsed["title"] = title_clean
                 elif "jessica jones" in norm_lower:
                     title_clean = "Marvel's Jessica Jones"

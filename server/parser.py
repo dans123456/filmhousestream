@@ -419,6 +419,7 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
     # 2b. Episodic detection for bare numeric filenames, End/Finale markers, and franchise series
     if not is_series:
         lower_name = name.lower()
+        norm_lower_name = re.sub(r"[\._\-]+", " ", lower_name)
         has_movie_release_sig = bool(
             YEAR_PATTERN.search(name)
             and re.search(r"\b(bluray|blu-ray|bdrip|brrip|webrip|web-dl|webdl|hdrip|dvdrip|remastered|imax)\b", name, re.IGNORECASE)
@@ -436,7 +437,7 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
             episode = int(num_m.group(1)) if num_m else 999
             working_name = end_lead_match.group(1).replace(".", " ").replace("_", " ").strip()
             working_name = re.sub(r"[\s\.\-_]+0?(\d{1,3})$", "", working_name).strip()
-        elif end_trail_match and not has_movie_release_sig and not any(ex in lower_name for ex in movie_end_exceptions):
+        elif end_trail_match and not has_movie_release_sig and not any(ex in norm_lower_name for ex in movie_end_exceptions):
             is_series = True
             season = 1
             num_m = re.search(r"\b(?:ep|episode|e)?\s*0?(\d{1,3})\b", name, re.IGNORECASE)
@@ -866,7 +867,7 @@ def parse_filename(raw_filename: str) -> Dict[str, Any]:
         elif "avengers earths mightiest heroes" in norm_t:
             clean_title = "The Avengers: Earth's Mightiest Heroes"
             is_series = True
-        elif "avengers assemble" in norm_t:
+        elif "avengers assemble" in norm_t or "avengers ultron revolution" in norm_t or "avengers secret wars" in norm_t:
             clean_title = "Marvel's Avengers Assemble"
             is_series = True
         elif "jessica jones" in norm_t and is_series:

@@ -24,6 +24,7 @@ from server.security import (
 )
 from server.cache import get_cached_chunk, store_cached_chunk, get_cache_stats
 from server.stream_server import format_bytes, parse_range_header
+from server.tmdb_auditor import get_auditor_canonical_key, format_episode_ranges, _is_placeholder_title
 from bot.storage import record_indexed_file, get_tracked_files, remove_tracked_files, merge_tracked_items
 
 def test_parser():
@@ -273,6 +274,33 @@ def test_merge_and_custom_rules():
         parser_mod._custom_merges_mtime = -1.0
 
 
+def test_auditor_keys_and_rules():
+    print("[TEST] Running TMDB auditor canonical key & strict rules tests...")
+    assert get_auditor_canonical_key("The End of the F***ing World") == "the_end_of_the_f_ing_world"
+    assert get_auditor_canonical_key("Avengers Ultron Revolution") == "marvels_avengers_assemble"
+    assert get_auditor_canonical_key("Avengers Secret Wars") == "marvels_avengers_assemble"
+    assert get_auditor_canonical_key("The Ossan Newbie Adventurer") == "the_ossan_newbie_adventurer"
+    assert get_auditor_canonical_key("The Vampire Diaries") == "the_vampire_diaries"
+    assert get_auditor_canonical_key("The Fixies") == "the_fixies"
+    assert get_auditor_canonical_key("Black Clover") == "black_clover"
+
+    assert format_episode_ranges([1, 2, 3, 5, 7, 8, 9]) == "Ep 1–3, 5, 7–9"
+    assert format_episode_ranges([32]) == "Ep 32"
+
+    assert _is_placeholder_title("mp4") is True
+    assert _is_placeholder_title("l") is True
+    assert _is_placeholder_title("this is") is False
+    assert _is_placeholder_title("24") is False
+
+    # Verify "This Is the End" and "Avengers Ultron Revolution" parse cleanly
+    tie = parse_filename("This.Is.The.End.2013.720p.mp4")
+    assert tie["is_series"] is False and tie["year"] == 2013, f"Got {tie}"
+    avr = parse_filename("Avengers.Ultron.Revolution.S03E01.720p.mkv")
+    assert avr["is_series"] is True and avr["title"] == "Marvel's Avengers Assemble", f"Got {avr}"
+
+    print("  ✅ TMDB auditor key & strict rules tests passed!")
+
+
 if __name__ == "__main__":
     test_parser()
     test_security_tokens()
@@ -281,4 +309,5 @@ if __name__ == "__main__":
     test_admin_auth()
     test_telegram_init_data()
     test_merge_and_custom_rules()
+    test_auditor_keys_and_rules()
     print("\n🎉 ALL TESTS PASSED SUCCESSFULLY! ZERO BUGS FOUND.")
